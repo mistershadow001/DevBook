@@ -183,6 +183,26 @@
     cursor: pointer;
     min-height: 40px;
   }
+  #roleBtns { display: flex; gap: 8px; margin-top: 4px; }
+  #roleBtns button {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #fafafa;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 40px;
+  }
+  #roleBtns button.active { background: #1a56db; color: #fff; border-color: #1a56db; }
+  #roleStatus {
+    font-size: 12px;
+    margin-top: 6px;
+    color: #333;
+    background: #f7f7f7;
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
 
   /* Answer card removed from view per request — lastQ/lastA stay in the DOM
      since other code (context pill, badge) reads their text as state, but
@@ -505,7 +525,8 @@
       <button id="shelfBtn">📚 Shelf</button>
       <button id="clearBtn">🧹 Clear page</button>
       <button id="recognizeBtn">✍ Recognize now</button>
-      <button id="saveNoteBtn">💾 Save note</button>
+      <button id="saveNoteBtn">📝 Save as text</button>
+      <button id="saveDrawingBtn">🖼 Save as drawing</button>
     </div>
 
     <label class="drawerCheck"><input type="checkbox" id="speakToggle" checked> Speak answers aloud</label>
@@ -514,10 +535,17 @@
       <label>API Keys</label>
       <div id="keysStatus">Loading keys from Firebase…</div>
       <div class="note">Keys are fetched securely from Firebase and never hardcoded or stored in this page.</div>
+      <label>Device role</label>
+      <div id="roleBtns">
+        <button id="rolePrimaryBtn" type="button">📱 Primary</button>
+        <button id="roleSecondaryBtn" type="button">📲 Secondary</button>
+      </div>
+      <div id="roleStatus">Choose a role to enable cross-device sync.</div>
+
       <label>Session ID (use the same one on other devices to sync)</label>
       <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
       <button id="connectSyncBtn">Connect Sync</button>
-      <div class="note">Leave blank to work offline (no sync). Pages are also saved on this device automatically.</div>
+      <div class="note">Primary generates the Session ID and answers every question. Secondary enters that same ID — its questions and drawings are sent to the Primary device, which does all the thinking and answers once. Leave both blank to work fully offline on this device.</div>
     </div>
   </div>
 </div>
@@ -665,6 +693,11 @@ const PAUSE_MS = 1400;
 // which made Save Note silently do nothing right after getting an answer.
 let canvasHasContent = false;
 
+// An image dropped onto the notebook (e.g. a photo of a drawing) that should
+// ride along as context the next time the 🧩 pill is sent to the Shelf or
+// Claude — separate from canvasHasContent since it isn't drawn ink.
+let attachedContextImage = null;
+
 // Two views of the same notebook: 'ask' auto-recognizes handwriting and
 // answers questions; 'notes' is free drawing/writing with no auto-trigger,
 // meant for keeping real notes and diagrams.
@@ -712,6 +745,7 @@ function endStroke() {
   if (mode === 'ask') pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
   captureCurrentPage();
   savePagesToStorage();
+  pushLiveDrawIfSecondary();
 }
 canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointerleave', endStroke);
@@ -726,6 +760,7 @@ document.addEventListener('visibilitychange', () => {
 document.getElementById('clearBtn').addEventListener('click', () => {
   strokes = [];
   canvasHasContent = false;
+  attachedContextImage = null;
   inkY = 40;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   statusEl.textContent = 'Cleared. Write your question, then finish with ?? and pause';
@@ -786,6 +821,28 @@ function setMode(newMode) {
 
 modeAskBtn.addEventListener('click', () => setMode('ask'));
 modeNotesBtn.addEventListener('click', () => setMode('notes'));
+
+// ---- Drag an image straight onto the notebook to attach it as context ----
+// This is separate from the canvas drawing itself: drop a photo/screenshot
+// here and it rides along the 🧩 pill next time it's sent to the Shelf or
+// to Claude, alongside (or instead of) whatever's actually drawn.
+canvasWrapEl.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
+canvasWrapEl.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  try {
+    attachedContextImage = await blobToDataUrl(file);
+    statusEl.textContent = '🖼 Image attached as context — drag the 🧩 pill to send it';
+    refreshPillBadge();
+  } catch (err) {
+    console.error('Failed to attach dropped image:', err);
+    statusEl.textContent = '⚠ Could not read that image';
+  }
+});
 
 // ---- API keys: fetched from Firebase, never hardcoded ----
 let liveKeys = { msApp: '', msHmac: '', groq: '' };
@@ -941,7 +998,8 @@ function writeAnswerOnCanvas(text) {
   const rect = canvas.parentElement.getBoundingClientRect();
   const fontSize = 26;
   const lineHeight = fontSize * 1.3;
-  const maxWidth = rect.width - 60;
+  const leftMargin = 60; // just past the red vertical margin line (~47px)
+  const maxWidth = rect.width - leftMargin - 30;
 
   ctx.font = fontSize + "px 'Caveat', cursive";
   ctx.fillStyle = '#1a56db'; // distinct ink color from user's writing
@@ -958,14 +1016,14 @@ function writeAnswerOnCanvas(text) {
   for (const word of words) {
     const test = line + word + ' ';
     if (ctx.measureText(test).width > maxWidth && line !== '') {
-      ctx.fillText(line, 30, y);
+      ctx.fillText(line, leftMargin, y);
       y += lineHeight;
       line = word + ' ';
     } else {
       line = test;
     }
   }
-  if (line) ctx.fillText(line, 30, y);
+  if (line) ctx.fillText(line, leftMargin, y);
   inkY = y + lineHeight;
 }
 
@@ -1055,7 +1113,8 @@ function animateAnswerOnCanvas(text, onDone) {
   const rect = canvas.parentElement.getBoundingClientRect();
   const fontSize = 26;
   const lineHeight = fontSize * 1.3;
-  const maxWidth = rect.width - 60;
+  const leftMargin = 60; // just past the red vertical margin line (~47px)
+  const maxWidth = rect.width - leftMargin - 30;
 
   ctx.font = fontSize + "px 'Caveat', cursive";
   ctx.fillStyle = '#1a56db';
@@ -1096,7 +1155,7 @@ function animateAnswerOnCanvas(text, onDone) {
     const currentLine = lines[li];
     ci = Math.min(ci + charsPerTick, currentLine.length);
     const y = startY + li * lineHeight;
-    ctx.fillText(currentLine.slice(0, ci), 30, y);
+    ctx.fillText(currentLine.slice(0, ci), leftMargin, y);
     if (ci >= currentLine.length) { li++; ci = 0; }
     setTimeout(tick, tickMs);
   }
@@ -1108,8 +1167,23 @@ const FIREBASE_URL = 'https://devbook-4a360-default-rtdb.asia-southeast1.firebas
 let firebaseListener = null;
 let seenEntryIds = new Set();
 
+// A stable id for this browser/device, so remote nodes can tell who a
+// question or a drawing came from.
+let deviceId = localStorage.getItem('aiNotebookDeviceId');
+if (!deviceId) {
+  deviceId = 'dev-' + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('aiNotebookDeviceId', deviceId);
+}
+
+// 'primary' | 'secondary' | '' (undecided / plain single-device use)
+let deviceRole = localStorage.getItem('aiNotebookRole') || '';
+
 function getSessionId() {
   return document.getElementById('sessionId').value.trim();
+}
+
+function generateSessionId() {
+  return Math.random().toString(36).slice(2, 8);
 }
 
 async function pushEntryToFirebase(question, answer) {
@@ -1203,11 +1277,207 @@ function renderRemoteEntry(entry) {
   });
 }
 
-document.getElementById('connectSyncBtn').addEventListener('click', () => {
+// ---- Primary-only: answer questions a Secondary device sent over ----
+// A Secondary never calls the AI itself — it posts the recognized question
+// here, and only the Primary computes + speaks + writes the answer, then
+// pushes it to /entries as usual (which the Secondary is already listening
+// to via connectFirebaseListener). This is what keeps a question answered
+// exactly once, on exactly one device.
+let pendingQuestionsListener = null;
+let seenPendingIds = new Set();
+
+function listenPendingQuestions() {
+  if (pendingQuestionsListener) { pendingQuestionsListener.close(); pendingQuestionsListener = null; }
+  if (deviceRole !== 'primary') return;
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+  seenPendingIds = new Set();
+  const url = `${FIREBASE_URL}/sessions/${sessionId}/pendingQuestions.json`;
+  pendingQuestionsListener = new EventSource(url);
+
+  pendingQuestionsListener.addEventListener('put', async (e) => {
+    const payload = JSON.parse(e.data);
+    if (!payload.data) return;
+    const items = payload.path === '/' ? Object.entries(payload.data) : [[payload.path.slice(1), payload.data]];
+    for (const [id, entry] of items) {
+      if (seenPendingIds.has(id) || !entry || !entry.question) continue;
+      seenPendingIds.add(id);
+      statusEl.textContent = '📥 Question from secondary device — thinking…';
+      try {
+        const answer = await askGroq(entry.question);
+        lastQ.textContent = 'Q (from secondary): ' + entry.question;
+        lastA.textContent = answer;
+        await new Promise(resolve => animateAnswerOnCanvas(answer, resolve));
+        speak(answer);
+        pushEntryToFirebase(entry.question, answer);
+        captureCurrentPage();
+        savePagesToStorage();
+        statusEl.textContent = '✓ Answered secondary device\'s question';
+      } catch (err) {
+        console.error('Failed to answer secondary question:', err);
+        statusEl.textContent = '⚠ Failed to answer secondary device\'s question';
+      }
+      fetch(`${FIREBASE_URL}/sessions/${sessionId}/pendingQuestions/${id}.json`, { method: 'DELETE' }).catch(() => {});
+    }
+  });
+}
+
+// ---- Primary-only: mirror a Secondary device's live drawing ----
+let liveDrawListener = null;
+let liveDrawPushTimer = null;
+
+function listenLiveDraw() {
+  if (liveDrawListener) { liveDrawListener.close(); liveDrawListener = null; }
+  if (deviceRole !== 'primary') return;
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+  const url = `${FIREBASE_URL}/sessions/${sessionId}/liveDraw.json`;
+  liveDrawListener = new EventSource(url);
+
+  liveDrawListener.addEventListener('put', (e) => {
+    const payload = JSON.parse(e.data);
+    if (!payload.data) return;
+    let snap = null;
+    if (payload.path === '/') {
+      const vals = Object.values(payload.data);
+      snap = vals.sort((a, b) => (a.t || 0) - (b.t || 0)).pop();
+    } else {
+      snap = payload.data;
+    }
+    if (!snap || !snap.image) return;
+    const img = new Image();
+    img.onload = () => {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      canvasHasContent = true;
+      statusEl.textContent = '✏️ Live drawing from secondary device';
+      refreshPillBadge();
+      captureCurrentPage();
+      savePagesToStorage();
+    };
+    img.src = snap.image;
+  });
+}
+
+// Secondary-only: throttled push of the current canvas so it shows up live
+// on the Primary device's page.
+function pushLiveDrawIfSecondary() {
+  if (deviceRole !== 'secondary') return;
+  const sessionId = getSessionId();
+  if (!sessionId) return;
+  clearTimeout(liveDrawPushTimer);
+  liveDrawPushTimer = setTimeout(() => {
+    const snapshot = getCanvasSnapshot();
+    fetch(`${FIREBASE_URL}/sessions/${sessionId}/liveDraw/${deviceId}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ image: snapshot, t: Date.now() })
+    }).catch(err => console.warn('Live draw push failed:', err));
+  }, 500);
+}
+
+// ---- Primary-only: perform Shelf-save / open-Claude actions requested by a Secondary ----
+function remoteActionsPath() {
+  const sessionId = getSessionId();
+  if (!sessionId) return null;
+  return `${FIREBASE_URL}/sessions/${sessionId}/remoteActions`;
+}
+
+let remoteActionsListener = null;
+let seenRemoteActionIds = new Set();
+
+function listenRemoteActions() {
+  if (remoteActionsListener) { remoteActionsListener.close(); remoteActionsListener = null; }
+  if (deviceRole !== 'primary') return;
+  const path = remoteActionsPath();
+  if (!path) return;
+  seenRemoteActionIds = new Set();
+  remoteActionsListener = new EventSource(`${path}.json`);
+
+  remoteActionsListener.addEventListener('put', async (e) => {
+    const payload = JSON.parse(e.data);
+    if (!payload.data) return;
+    const items = payload.path === '/' ? Object.entries(payload.data) : [[payload.path.slice(1), payload.data]];
+    for (const [id, action] of items) {
+      if (seenRemoteActionIds.has(id) || !action) continue;
+      seenRemoteActionIds.add(id);
+      if (action.type === 'shelf') {
+        await performShelfSave({ text: action.text, image: action.image });
+        statusEl.textContent = '📚 Saved to Shelf (sent from secondary device)';
+      } else if (action.type === 'claude') {
+        await performOpenClaude({ text: action.text, image: action.image });
+        statusEl.textContent = '🤖 Opening Claude (sent from secondary device)';
+      }
+      fetch(`${path}/${id}.json`, { method: 'DELETE' }).catch(() => {});
+    }
+  });
+}
+
+// Starts (or restarts) every sync channel this device's role needs.
+function connectSync() {
   connectFirebaseListener();
+  listenPendingQuestions();
+  listenLiveDraw();
+  listenRemoteActions();
+}
+
+// ---- Device role: Primary generates + owns the Session ID and does all the
+// thinking; Secondary joins with that same ID and defers questions/answers
+// and shelf/Claude actions to the Primary. ----
+const rolePrimaryBtn = document.getElementById('rolePrimaryBtn');
+const roleSecondaryBtn = document.getElementById('roleSecondaryBtn');
+const roleStatusEl = document.getElementById('roleStatus');
+const sessionIdInput = document.getElementById('sessionId');
+
+function updateRoleUI() {
+  rolePrimaryBtn.classList.toggle('active', deviceRole === 'primary');
+  roleSecondaryBtn.classList.toggle('active', deviceRole === 'secondary');
+  if (deviceRole === 'primary') {
+    sessionIdInput.readOnly = true;
+    roleStatusEl.textContent = '📱 Primary device. Share this Session ID with your secondary device: ' + (getSessionId() || '(tap Primary again to generate one)');
+  } else if (deviceRole === 'secondary') {
+    sessionIdInput.readOnly = false;
+    sessionIdInput.placeholder = "Enter the Primary device's Session ID";
+    roleStatusEl.textContent = "📲 Secondary device. Enter the Primary device's Session ID above, then tap Connect Sync. Your questions and drawings go to the Primary, which answers.";
+  } else {
+    sessionIdInput.readOnly = false;
+    roleStatusEl.textContent = 'Choose Primary or Secondary to enable cross-device sync.';
+  }
+}
+
+rolePrimaryBtn.addEventListener('click', () => {
+  deviceRole = 'primary';
+  localStorage.setItem('aiNotebookRole', 'primary');
+  if (!getSessionId()) {
+    sessionIdInput.value = generateSessionId();
+    localStorage.setItem('aiNotebookSessionId', sessionIdInput.value);
+  }
+  updateRoleUI();
+  connectSync();
+});
+
+roleSecondaryBtn.addEventListener('click', () => {
+  deviceRole = 'secondary';
+  localStorage.setItem('aiNotebookRole', 'secondary');
+  updateRoleUI();
+  statusEl.textContent = "Enter the Primary device's Session ID, then tap Connect Sync";
+});
+
+// Remember the Session ID across reloads so a device doesn't have to be
+// re-paired every time it's opened.
+const storedSessionId = localStorage.getItem('aiNotebookSessionId');
+if (storedSessionId) sessionIdInput.value = storedSessionId;
+sessionIdInput.addEventListener('input', () => {
+  localStorage.setItem('aiNotebookSessionId', sessionIdInput.value.trim());
+});
+
+document.getElementById('connectSyncBtn').addEventListener('click', () => {
+  connectSync();
   closeDrawer(); // hand the writing area back on mobile
 });
-document.getElementById('sessionId').addEventListener('change', connectFirebaseListener);
+sessionIdInput.addEventListener('change', connectSync);
+
+updateRoleUI();
+if (deviceRole && getSessionId()) connectSync();
 
 // ---- Type-instead bar (mobile-friendly alternative to handwriting) ----
 const typeToggleBtn = document.getElementById('typeToggleBtn');
@@ -1226,6 +1496,27 @@ async function runTypedPipeline(question) {
   processing = true;
   try {
     lastQ.textContent = 'Q: ' + question;
+
+    if (deviceRole === 'secondary') {
+      const sessionId = getSessionId();
+      if (!sessionId) {
+        statusEl.textContent = "⚠ Enter the Primary device's Session ID first";
+        return;
+      }
+      statusEl.textContent = 'Sending question to primary device…';
+      try {
+        await fetch(`${FIREBASE_URL}/sessions/${sessionId}/pendingQuestions.json`, {
+          method: 'POST',
+          body: JSON.stringify({ question, t: Date.now(), from: deviceId })
+        });
+        statusEl.textContent = '📤 Sent to primary device — waiting for its answer…';
+      } catch (err) {
+        console.error('Failed to send question to primary:', err);
+        statusEl.textContent = '⚠ Failed to reach primary device';
+      }
+      return; // answer arrives through the normal entries listener
+    }
+
     statusEl.textContent = 'Thinking…';
     const answer = await askGroq(question);
     lastA.textContent = answer;
@@ -1262,6 +1553,7 @@ typeInput.addEventListener('keydown', (e) => {
 // ---- Notes: save diagrams/handwriting as-is, plus a cleaned-up typed version ----
 const notesBtn = document.getElementById('notesBtn');
 const saveNoteBtn = document.getElementById('saveNoteBtn');
+const saveDrawingBtn = document.getElementById('saveDrawingBtn');
 const notesListModal = document.getElementById('notesListModal');
 const notesListContent = document.getElementById('notesListContent');
 const closeNotesListBtn = document.getElementById('closeNotesListBtn');
@@ -1330,39 +1622,78 @@ async function saveCurrentNote() {
     statusEl.textContent = '⚠ Nothing on the page to save yet';
     return;
   }
-  statusEl.textContent = 'Saving note…';
+  statusEl.textContent = 'Converting to text…';
   let rawText = '';
   let cleanText = '';
-  try {
-    rawText = await recognizeHandwriting();
-    cleanText = await cleanUpTextWithGroq(rawText);
-  } catch (err) {
-    console.warn('Note text conversion skipped (diagram-only save):', err.message);
+  // Right after a question gets answered, the strokes buffer is cleared even
+  // though the page still shows the Q&A — so there's nothing left to OCR.
+  // Fall back to the text already sitting in the answer bar in that case,
+  // instead of re-running handwriting recognition on an empty stroke buffer.
+  const qaText = [lastQ.textContent, lastA.textContent].filter(Boolean).join('\n').trim();
+  if (strokes.length > 0) {
+    try {
+      rawText = await recognizeHandwriting();
+      cleanText = await cleanUpTextWithGroq(rawText);
+    } catch (err) {
+      console.warn('Note text conversion failed:', err.message);
+    }
   }
-  // If we got usable typed text back, save the note as clean typed text only —
-  // no need to keep the handwritten scrawl once it's been converted.
-  // If nothing was recognized (a drawing/diagram), fall back to keeping the
-  // canvas snapshot as-is so diagrams aren't lost.
-  const hasText = !!(cleanText || rawText).trim();
-  const image = hasText ? null : getCanvasSnapshot();
-  const title = (cleanText || rawText || 'Untitled note').split('\n')[0].slice(0, 60);
-  const note = { title, image, rawText, cleanText, t: Date.now() };
+  // "Save as text" always saves text, never an image snapshot. If handwriting
+  // recognition genuinely found nothing (e.g. a pure diagram) and there's no
+  // Q&A to fall back on either, it still saves a text note saying so — use
+  // "Save as drawing" instead for diagrams/sketches.
+  const finalText = (cleanText || rawText || qaText).trim() || '(No text could be recognized on this page)';
+  const title = finalText.split('\n')[0].slice(0, 60) || 'Untitled note';
+  const note = { type: 'text', title, rawText, cleanText: cleanText || rawText || qaText || '', t: Date.now() };
   try {
     const res = await fetch(`${path}.json`, { method: 'POST', body: JSON.stringify(note) });
     if (!res.ok) throw new Error('status ' + res.status);
-    statusEl.textContent = '✓ Note saved — fresh blank page ready';
-    strokes = [];
-    canvasHasContent = false;
-    inkY = 40;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    refreshPillBadge();
-    captureCurrentPage();
-    savePagesToStorage();
-    closeDrawer();
+    statusEl.textContent = '✓ Note saved as text — fresh blank page ready';
+    resetPageAfterNoteSave();
   } catch (err) {
     console.error('Save note failed:', err);
     statusEl.textContent = '⚠ Failed to save note';
   }
+}
+
+// "Save as drawing" keeps the canvas exactly as drawn — a diagram, sketch,
+// or annotated image — with no OCR/text conversion at all. Notes saved this
+// way are tagged type:'drawing' so the Notes list and "open" behavior can
+// tell them apart from typed-text notes.
+async function saveCurrentDrawing() {
+  const path = notesPath();
+  if (!path) {
+    statusEl.textContent = '⚠ Set a Session ID in Settings first to save notes';
+    return;
+  }
+  if (!canvasHasContent) {
+    statusEl.textContent = '⚠ Nothing on the page to save yet';
+    return;
+  }
+  statusEl.textContent = 'Saving drawing…';
+  const image = getCanvasSnapshot();
+  const note = { type: 'drawing', title: 'Drawing — ' + new Date().toLocaleString(), image, t: Date.now() };
+  try {
+    const res = await fetch(`${path}.json`, { method: 'POST', body: JSON.stringify(note) });
+    if (!res.ok) throw new Error('status ' + res.status);
+    statusEl.textContent = '✓ Drawing saved — fresh blank page ready';
+    resetPageAfterNoteSave();
+  } catch (err) {
+    console.error('Save drawing failed:', err);
+    statusEl.textContent = '⚠ Failed to save drawing';
+  }
+}
+
+function resetPageAfterNoteSave() {
+  strokes = [];
+  canvasHasContent = false;
+  attachedContextImage = null;
+  inkY = 40;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  refreshPillBadge();
+  captureCurrentPage();
+  savePagesToStorage();
+  closeDrawer();
 }
 
 async function loadNotes() {
@@ -1391,9 +1722,12 @@ function renderNotesList() {
   notesListContent.innerHTML = '';
   ids.forEach(id => {
     const n = notesCache[id];
-    const preview = n.cleanText || n.rawText || '(diagram only, no text recognized)';
+    const isDrawing = n.type === 'drawing' || (!!n.image && !n.cleanText && !n.rawText);
+    const typeIcon = isDrawing ? '🎨' : '📝';
+    const preview = isDrawing ? '(drawing)' : (n.cleanText || n.rawText || '(no text recognized)');
     const card = document.createElement('div');
     card.className = 'noteCard';
+    // Drawings (and legacy notes saved with an image) get a thumbnail
     if (n.image) {
       const img = document.createElement('img');
       img.src = n.image;
@@ -1405,30 +1739,107 @@ function renderNotesList() {
       <div class="title"></div>
       <div class="preview"></div>
       <div class="time"></div>`;
-    meta.querySelector('.title').textContent = n.title || 'Untitled note';
+    meta.querySelector('.title').textContent = typeIcon + ' ' + (n.title || 'Untitled note');
     meta.querySelector('.preview').textContent = preview;
     meta.querySelector('.time').textContent = new Date(n.t).toLocaleString();
     card.appendChild(meta);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'noteDeleteBtn';
+    delBtn.textContent = '🗑';
+    delBtn.style.flexShrink = '0';
+    delBtn.title = 'Delete note';
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this note? This cannot be undone.')) return;
+      const path = notesPath();
+      if (!path) return;
+      try {
+        await fetch(`${path}/${id}.json`, { method: 'DELETE' });
+        delete notesCache[id];
+      } catch (err) {
+        console.error('Delete note failed:', err);
+      }
+      renderNotesList();
+    });
+    card.appendChild(delBtn);
     card.addEventListener('click', () => openNoteDetail(id));
     notesListContent.appendChild(card);
   });
 }
 
+// Renders a saved note's text onto the current (blank) canvas, in the same
+// handwritten-style font the app already uses for answers.
+function writeNoteTextOnPage(title, text) {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const fontSize = 22;
+  const lineHeight = fontSize * 1.3;
+  const maxWidth = rect.width - 60;
+  ctx.textBaseline = 'top';
+  let y = 40;
+
+  if (title) {
+    ctx.font = "bold " + fontSize + "px 'Caveat', cursive";
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillText(title, 30, y);
+    y += lineHeight + 10;
+  }
+
+  ctx.font = fontSize + "px 'Caveat', cursive";
+  ctx.fillStyle = '#1a56db';
+  (text || '').split('\n').forEach(paragraph => {
+    const words = paragraph.split(' ');
+    let line = '';
+    for (const word of words) {
+      const test = line + word + ' ';
+      if (ctx.measureText(test).width > maxWidth && line !== '') {
+        ctx.fillText(line, 30, y);
+        y += lineHeight;
+        line = word + ' ';
+      } else {
+        line = test;
+      }
+    }
+    if (line) { ctx.fillText(line, 30, y); y += lineHeight; }
+    y += 6; // paragraph gap
+  });
+
+  inkY = y + lineHeight;
+  canvasHasContent = true;
+}
+
+// Opening a saved note now flips to a brand-new page in the notebook, and
+// renders it according to its type: a drawing note redraws the saved image
+// as-is; a text note writes its text in the notebook's handwritten font.
 function openNoteDetail(id) {
   const n = notesCache[id];
   if (!n) return;
+  const isDrawing = n.type === 'drawing' || (!!n.image && !n.cleanText && !n.rawText);
   currentNoteId = id;
-  noteDetailTitle.textContent = n.title || 'Untitled note';
-  if (n.image) {
-    noteDetailImg.src = n.image;
-    noteDetailImg.style.display = '';
-  } else {
-    noteDetailImg.removeAttribute('src');
-    noteDetailImg.style.display = 'none';
-  }
-  noteDetailText.textContent = n.cleanText || n.rawText || '(no typed text — diagram only)';
   notesListModal.classList.remove('open');
-  noteDetailModal.classList.add('open');
+  closeDrawer();
+  setMode('notes');
+  addNewPage();
+
+  if (isDrawing && n.image) {
+    const img = new Image();
+    img.onload = () => {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      canvasHasContent = true;
+      captureCurrentPage();
+      savePagesToStorage();
+      refreshPillBadge();
+    };
+    img.src = n.image;
+    statusEl.textContent = '🎨 Drawing opened on a new page';
+  } else {
+    const text = n.cleanText || n.rawText || '(no text saved for this note)';
+    writeNoteTextOnPage(n.title, text);
+    captureCurrentPage();
+    savePagesToStorage();
+    refreshPillBadge();
+    statusEl.textContent = '📝 Note opened on a new page';
+  }
 }
 
 deleteNoteBtn.addEventListener('click', async () => {
@@ -1453,6 +1864,7 @@ notesBtn.addEventListener('click', () => {
 closeNotesListBtn.addEventListener('click', () => notesListModal.classList.remove('open'));
 closeNoteDetailBtn.addEventListener('click', () => noteDetailModal.classList.remove('open'));
 saveNoteBtn.addEventListener('click', saveCurrentNote);
+saveDrawingBtn.addEventListener('click', saveCurrentDrawing);
 
 // ---- Context Pill: drag a summary (+ drawing) to the Shelf, or straight to Claude ----
 const contextPill = document.getElementById('contextPill');
@@ -1495,13 +1907,17 @@ function getPillContext() {
   const qText = lastQ.textContent || '';
   const aText = lastA.textContent || '';
   let text = [qText, aText].filter(Boolean).join('\n').trim();
-  if (!text) text = hasDrawing ? '(drawing only — no Q&A yet)' : '(no context yet)';
-  return { text, image: hasDrawing ? getCanvasSnapshot() : null };
+  // A dropped-in image takes priority as "the" context image; otherwise fall
+  // back to whatever's actually drawn on the page.
+  const image = attachedContextImage || (hasDrawing ? getCanvasSnapshot() : null);
+  if (!text) text = image ? '(image context)' : '(no context yet)';
+  return { text, image };
 }
 
 function refreshPillBadge() {
   const badge = document.getElementById('pillBadge');
   if (!badge) return;
+  if (attachedContextImage) { badge.textContent = '🖼'; return; }
   badge.textContent = strokes.length > 0 ? '✏️' : (lastA.textContent ? '💬' : '–');
 }
 
@@ -1545,13 +1961,12 @@ async function copyContextToClipboard(payload) {
   }
 }
 
-async function handleDropToShelf() {
+async function performShelfSave(ctxData) {
   const path = shelfPath();
   if (!path) {
     statusEl.textContent = '⚠ Set a Session ID in Settings first to use the Shelf';
     return;
   }
-  const ctxData = getPillContext();
   statusEl.textContent = 'Saving to Shelf…';
   try {
     const res = await fetch(`${path}.json`, {
@@ -1566,14 +1981,65 @@ async function handleDropToShelf() {
   }
 }
 
-async function handleDropToClaude() {
-  const ctxData = getPillContext();
+async function performOpenClaude(ctxData) {
   statusEl.textContent = 'Copying context…';
   const ok = await copyContextToClipboard(ctxData);
   statusEl.textContent = ok
     ? '✓ Copied — opening Claude, paste with Ctrl/Cmd+V'
     : '⚠ Copy failed — opening Claude anyway';
   window.open('https://claude.ai/new', '_blank');
+}
+
+// On a Secondary device, dropping the pill doesn't act locally — it sends
+// the context to the Primary device, which does the actual Shelf-save or
+// Claude-open. That's what makes "drop on Claude" from a phone end up
+// opening Claude on the laptop that's set as Primary.
+async function handleDropToShelf() {
+  const ctxData = getPillContext();
+  if (deviceRole === 'secondary') {
+    const path = remoteActionsPath();
+    if (!path) {
+      statusEl.textContent = "⚠ Enter the Primary device's Session ID first";
+      return;
+    }
+    statusEl.textContent = 'Sending to primary device…';
+    try {
+      await fetch(`${path}.json`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'shelf', text: ctxData.text, image: ctxData.image, t: Date.now() })
+      });
+      statusEl.textContent = '✓ Sent — the primary device will save it to the Shelf';
+    } catch (err) {
+      console.error('Failed to send Shelf action to primary:', err);
+      statusEl.textContent = '⚠ Failed to reach primary device';
+    }
+    return;
+  }
+  await performShelfSave(ctxData);
+}
+
+async function handleDropToClaude() {
+  const ctxData = getPillContext();
+  if (deviceRole === 'secondary') {
+    const path = remoteActionsPath();
+    if (!path) {
+      statusEl.textContent = "⚠ Enter the Primary device's Session ID first";
+      return;
+    }
+    statusEl.textContent = 'Sending to primary device…';
+    try {
+      await fetch(`${path}.json`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'claude', text: ctxData.text, image: ctxData.image, t: Date.now() })
+      });
+      statusEl.textContent = '✓ Sent — Claude will open on the primary device';
+    } catch (err) {
+      console.error('Failed to send Claude action to primary:', err);
+      statusEl.textContent = '⚠ Failed to reach primary device';
+    }
+    return;
+  }
+  await performOpenClaude(ctxData);
 }
 
 // ---- Pill drag handling ----
@@ -1740,11 +2206,26 @@ deleteShelfBtn.addEventListener('click', async () => {
 shelfCopyToClaudeBtn.addEventListener('click', async () => {
   const p = shelfCache[currentShelfId];
   if (!p) return;
-  const ok = await copyContextToClipboard({ text: p.text, image: p.image });
-  statusEl.textContent = ok
-    ? '✓ Copied — opening Claude, paste with Ctrl/Cmd+V'
-    : '⚠ Copy failed — opening Claude anyway';
-  window.open('https://claude.ai/new', '_blank');
+  if (deviceRole === 'secondary') {
+    const path = remoteActionsPath();
+    if (!path) {
+      statusEl.textContent = "⚠ Enter the Primary device's Session ID first";
+      return;
+    }
+    statusEl.textContent = 'Sending to primary device…';
+    try {
+      await fetch(`${path}.json`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'claude', text: p.text, image: p.image, t: Date.now() })
+      });
+      statusEl.textContent = '✓ Sent — Claude will open on the primary device';
+    } catch (err) {
+      console.error('Failed to send Claude action to primary:', err);
+      statusEl.textContent = '⚠ Failed to reach primary device';
+    }
+    return;
+  }
+  await performOpenClaude({ text: p.text, image: p.image });
 });
 
 // ---- + New pill: paste something copied from Claude, save it to the Shelf ----
@@ -1977,9 +2458,33 @@ async function runPipeline() {
     }
 
     lastQ.textContent = 'Q: ' + question;
-    statusEl.textContent = 'Thinking…';
-
     const questionStrokes = strokes.slice(); // keep a reference before we clear the buffer
+
+    if (deviceRole === 'secondary') {
+      const sessionId = getSessionId();
+      if (!sessionId) {
+        statusEl.textContent = "⚠ Enter the Primary device's Session ID first";
+        return;
+      }
+      statusEl.textContent = 'Sending question to primary device…';
+      await new Promise(resolve => fadeOutStrokesGhost(questionStrokes, resolve));
+      strokes = [];
+      captureCurrentPage();
+      savePagesToStorage();
+      try {
+        await fetch(`${FIREBASE_URL}/sessions/${sessionId}/pendingQuestions.json`, {
+          method: 'POST',
+          body: JSON.stringify({ question, t: Date.now(), from: deviceId })
+        });
+        statusEl.textContent = '📤 Sent to primary device — waiting for its answer…';
+      } catch (err) {
+        console.error('Failed to send question to primary:', err);
+        statusEl.textContent = '⚠ Failed to reach primary device';
+      }
+      return; // answer arrives through the normal entries listener
+    }
+
+    statusEl.textContent = 'Thinking…';
     const answer = await askGroq(question);
     lastA.textContent = answer;
 
