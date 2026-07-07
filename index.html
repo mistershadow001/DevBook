@@ -245,6 +245,103 @@
     cursor: pointer;
     min-height: 40px;
   }
+
+  /* ---- Context Pill ---- */
+  #contextPill {
+    position: fixed;
+    right: 16px;
+    bottom: 90px;
+    z-index: 900;
+    background: #1a56db;
+    color: #fff;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    transition: transform 0.12s ease;
+  }
+  #contextPill.dragging {
+    cursor: grabbing;
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  }
+  #contextPill .pillBadge {
+    background: rgba(255,255,255,0.25);
+    border-radius: 999px;
+    font-size: 11px;
+    padding: 2px 7px;
+  }
+  #dropZones {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 899;
+    gap: 8px;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(0,0,0,0.35), transparent);
+  }
+  #dropZones.show { display: flex; }
+  .dropZone {
+    flex: 1;
+    border: 2px dashed rgba(255,255,255,0.7);
+    border-radius: 14px;
+    background: rgba(26,86,219,0.85);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 72px;
+    text-align: center;
+    line-height: 1.4;
+    padding: 8px;
+  }
+  .dropZone.hover {
+    background: rgba(10,122,47,0.92);
+    border-color: #fff;
+    transform: scale(1.03);
+  }
+  .pillActionBtn {
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 40px;
+    margin-right: 8px;
+  }
+  .pillActionBtn.primary { background: #1a56db; color: #fff; border-color: #1a56db; }
+  #newPillPasteArea {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    min-height: 90px;
+    padding: 10px;
+    font-size: 13px;
+    color: #333;
+    margin-bottom: 10px;
+    outline: none;
+    white-space: pre-wrap;
+  }
+  #newPillPasteArea:empty:before {
+    content: attr(data-placeholder);
+    color: #aaa;
+  }
+  #newPillPreviewImg {
+    display: none;
+    max-width: 100%;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+  }
 </style>
 </head>
 <body>
@@ -254,6 +351,7 @@
   <div id="status">Write your question, then finish with ?? and pause</div>
   <button id="typeToggleBtn">⌨ Type</button>
   <button id="notesBtn">🗒 Notes</button>
+  <button id="shelfBtn">📚 Shelf</button>
   <button id="settingsBtn">⚙ Settings</button>
   <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
     <input type="checkbox" id="speakToggle" checked> Speak answers
@@ -294,6 +392,44 @@
     <img id="noteDetailImg" class="noteDetailImg" alt="Saved note diagram">
     <div id="noteDetailText" class="noteDetailText"></div>
     <button class="noteDeleteBtn" id="deleteNoteBtn">🗑 Delete note</button>
+  </div>
+</div>
+
+<div id="contextPill">🧩 Context <span class="pillBadge" id="pillBadge">–</span></div>
+
+<div id="dropZones">
+  <div class="dropZone" id="dropShelf">📚<br>Drop on Shelf</div>
+  <div class="dropZone" id="dropClaude">🤖<br>Drop on Claude</div>
+</div>
+
+<div id="shelfListModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeShelfListBtn">✕</button>
+    <h2>📚 Shelf <button class="pillActionBtn" id="newPillBtn" style="float:right; margin-right:36px;">+ New pill</button></h2>
+    <div class="note" style="margin-bottom:10px;">Drag the 🧩 pill here to store the current drawing/context, or Copy to Claude to send it there.</div>
+    <div id="shelfListContent"><div class="notesEmpty">Loading…</div></div>
+  </div>
+</div>
+
+<div id="shelfDetailModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeShelfDetailBtn">✕</button>
+    <h2>Pill</h2>
+    <img id="shelfDetailImg" class="noteDetailImg" style="display:none;" alt="Pill drawing">
+    <div id="shelfDetailText" class="noteDetailText"></div>
+    <button class="pillActionBtn primary" id="shelfCopyToClaudeBtn">🤖 Copy to Claude</button>
+    <button class="noteDeleteBtn" id="deleteShelfBtn">🗑 Delete</button>
+  </div>
+</div>
+
+<div id="newPillModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeNewPillBtn">✕</button>
+    <h2>+ New pill from Claude</h2>
+    <div class="note" style="margin-bottom:8px;">Copy something from Claude (text and/or an image), tap the box below, then paste (Ctrl/Cmd+V).</div>
+    <div id="newPillPasteArea" contenteditable="true" data-placeholder="Tap here, then paste…"></div>
+    <img id="newPillPreviewImg" alt="Pasted image preview">
+    <button class="pillActionBtn primary" id="saveNewPillBtn">Save to Shelf</button>
   </div>
 </div>
 
@@ -390,6 +526,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   strokes = [];
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   statusEl.textContent = 'Cleared. Write your question, then finish with ?? and pause';
+  refreshPillBadge();
 });
 
 document.getElementById('recognizeBtn').addEventListener('click', () => {
@@ -677,6 +814,7 @@ function renderRemoteEntry(entry) {
   lastQ.textContent = 'Q (synced): ' + entry.question;
   lastA.textContent = entry.answer;
   writeAnswerOnCanvas(entry.answer);
+  refreshPillBadge();
 }
 
 document.getElementById('connectSyncBtn').addEventListener('click', connectFirebaseListener);
@@ -711,6 +849,7 @@ async function runTypedPipeline(question) {
     statusEl.textContent = '⚠ ' + err.message;
   } finally {
     processing = false;
+    refreshPillBadge();
   }
 }
 
@@ -900,6 +1039,335 @@ closeNotesListBtn.addEventListener('click', () => notesListModal.classList.remov
 closeNoteDetailBtn.addEventListener('click', () => noteDetailModal.classList.remove('open'));
 saveNoteBtn.addEventListener('click', saveCurrentNote);
 
+// ---- Context Pill: drag a summary (+ drawing) to the Shelf, or straight to Claude ----
+const contextPill = document.getElementById('contextPill');
+const dropZones = document.getElementById('dropZones');
+const dropShelf = document.getElementById('dropShelf');
+const dropClaude = document.getElementById('dropClaude');
+
+const shelfBtn = document.getElementById('shelfBtn');
+const shelfListModal = document.getElementById('shelfListModal');
+const shelfListContent = document.getElementById('shelfListContent');
+const closeShelfListBtn = document.getElementById('closeShelfListBtn');
+const shelfDetailModal = document.getElementById('shelfDetailModal');
+const shelfDetailImg = document.getElementById('shelfDetailImg');
+const shelfDetailText = document.getElementById('shelfDetailText');
+const closeShelfDetailBtn = document.getElementById('closeShelfDetailBtn');
+const deleteShelfBtn = document.getElementById('deleteShelfBtn');
+const shelfCopyToClaudeBtn = document.getElementById('shelfCopyToClaudeBtn');
+
+const newPillBtn = document.getElementById('newPillBtn');
+const newPillModal = document.getElementById('newPillModal');
+const closeNewPillBtn = document.getElementById('closeNewPillBtn');
+const newPillPasteArea = document.getElementById('newPillPasteArea');
+const newPillPreviewImg = document.getElementById('newPillPreviewImg');
+const saveNewPillBtn = document.getElementById('saveNewPillBtn');
+
+let shelfCache = {};
+let currentShelfId = null;
+let pendingNewPill = { text: '', image: null };
+
+function shelfPath() {
+  const sid = getSessionId();
+  if (!sid) return null;
+  return `${FIREBASE_URL}/shelf/${sid}`;
+}
+
+// Builds the "context" that gets dragged: last Q&A shown, plus the current
+// drawing (as-is) if there is one on the page right now.
+function getPillContext() {
+  const hasDrawing = strokes.length > 0;
+  const qText = lastQ.textContent || '';
+  const aText = lastA.textContent || '';
+  let text = [qText, aText].filter(Boolean).join('\n').trim();
+  if (!text) text = hasDrawing ? '(drawing only — no Q&A yet)' : '(no context yet)';
+  return { text, image: hasDrawing ? getCanvasSnapshot() : null };
+}
+
+function refreshPillBadge() {
+  const badge = document.getElementById('pillBadge');
+  if (!badge) return;
+  badge.textContent = strokes.length > 0 ? '✏️' : (lastA.textContent ? '💬' : '–');
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const res = await fetch(dataUrl);
+  return await res.blob();
+}
+
+// Writes text + image (if any) to the clipboard as one multi-format item, so
+// pasting into Claude's chat box picks up whichever it accepts (image or text).
+async function copyContextToClipboard(payload) {
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      const parts = { 'text/plain': new Blob([payload.text || ''], { type: 'text/plain' }) };
+      if (payload.image) {
+        const blob = await dataUrlToBlob(payload.image);
+        parts[blob.type] = blob;
+      }
+      await navigator.clipboard.write([new ClipboardItem(parts)]);
+      return true;
+    }
+    await navigator.clipboard.writeText(payload.text || '');
+    return true;
+  } catch (err) {
+    console.error('Clipboard write failed:', err);
+    try {
+      await navigator.clipboard.writeText(payload.text || '');
+      return true;
+    } catch (err2) {
+      return false;
+    }
+  }
+}
+
+async function handleDropToShelf() {
+  const path = shelfPath();
+  if (!path) {
+    statusEl.textContent = '⚠ Set a Session ID in Settings first to use the Shelf';
+    return;
+  }
+  const ctxData = getPillContext();
+  statusEl.textContent = 'Saving to Shelf…';
+  try {
+    const res = await fetch(`${path}.json`, {
+      method: 'POST',
+      body: JSON.stringify({ text: ctxData.text, image: ctxData.image, t: Date.now() })
+    });
+    if (!res.ok) throw new Error('status ' + res.status);
+    statusEl.textContent = '✓ Saved to Shelf';
+  } catch (err) {
+    console.error('Save to Shelf failed:', err);
+    statusEl.textContent = '⚠ Failed to save to Shelf';
+  }
+}
+
+async function handleDropToClaude() {
+  const ctxData = getPillContext();
+  statusEl.textContent = 'Copying context…';
+  const ok = await copyContextToClipboard(ctxData);
+  statusEl.textContent = ok
+    ? '✓ Copied — opening Claude, paste with Ctrl/Cmd+V'
+    : '⚠ Copy failed — opening Claude anyway';
+  window.open('https://claude.ai/new', '_blank');
+}
+
+// ---- Pill drag handling ----
+let pillDragging = false;
+let pillOffsetX = 0, pillOffsetY = 0;
+
+function zoneAtPoint(x, y) {
+  for (const z of [dropShelf, dropClaude]) {
+    const r = z.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
+  }
+  return null;
+}
+
+function resetPillPosition() {
+  contextPill.style.left = '';
+  contextPill.style.top = '';
+  contextPill.style.right = '16px';
+  contextPill.style.bottom = '90px';
+}
+
+contextPill.addEventListener('pointerdown', (e) => {
+  pillDragging = true;
+  contextPill.setPointerCapture(e.pointerId);
+  const rect = contextPill.getBoundingClientRect();
+  pillOffsetX = e.clientX - rect.left;
+  pillOffsetY = e.clientY - rect.top;
+  contextPill.classList.add('dragging');
+  dropZones.classList.add('show');
+});
+
+contextPill.addEventListener('pointermove', (e) => {
+  if (!pillDragging) return;
+  contextPill.style.left = (e.clientX - pillOffsetX) + 'px';
+  contextPill.style.top = (e.clientY - pillOffsetY) + 'px';
+  contextPill.style.right = 'auto';
+  contextPill.style.bottom = 'auto';
+  const zone = zoneAtPoint(e.clientX, e.clientY);
+  [dropShelf, dropClaude].forEach(z => z.classList.remove('hover'));
+  if (zone) zone.classList.add('hover');
+});
+
+async function finishPillDrag(e) {
+  if (!pillDragging) return;
+  pillDragging = false;
+  contextPill.classList.remove('dragging');
+  dropZones.classList.remove('show');
+  const zone = zoneAtPoint(e.clientX, e.clientY);
+  [dropShelf, dropClaude].forEach(z => z.classList.remove('hover'));
+  resetPillPosition();
+  if (zone === dropShelf) await handleDropToShelf();
+  else if (zone === dropClaude) await handleDropToClaude();
+}
+
+contextPill.addEventListener('pointerup', finishPillDrag);
+contextPill.addEventListener('pointercancel', () => {
+  pillDragging = false;
+  contextPill.classList.remove('dragging');
+  dropZones.classList.remove('show');
+  [dropShelf, dropClaude].forEach(z => z.classList.remove('hover'));
+  resetPillPosition();
+});
+
+// ---- Shelf: browse/manage pills saved from this device or others ----
+async function loadShelf() {
+  const path = shelfPath();
+  if (!path) {
+    shelfListContent.innerHTML = '<div class="notesEmpty">Set a Session ID in Settings to use the Shelf.</div>';
+    return;
+  }
+  shelfListContent.innerHTML = '<div class="notesEmpty">Loading…</div>';
+  try {
+    const res = await fetch(`${path}.json`);
+    const data = await res.json();
+    shelfCache = data || {};
+    renderShelfList();
+  } catch (err) {
+    shelfListContent.innerHTML = '<div class="notesEmpty">⚠ Failed to load Shelf</div>';
+  }
+}
+
+function renderShelfList() {
+  const ids = Object.keys(shelfCache).sort((a, b) => (shelfCache[b].t || 0) - (shelfCache[a].t || 0));
+  if (ids.length === 0) {
+    shelfListContent.innerHTML = '<div class="notesEmpty">Shelf is empty — drag the 🧩 pill here, or tap + New pill.</div>';
+    return;
+  }
+  shelfListContent.innerHTML = '';
+  ids.forEach(id => {
+    const p = shelfCache[id];
+    const card = document.createElement('div');
+    card.className = 'noteCard';
+    if (p.image) {
+      const img = document.createElement('img');
+      img.src = p.image;
+      card.appendChild(img);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = '<div class="preview"></div><div class="time"></div>';
+    meta.querySelector('.preview').textContent = p.text || '(image only)';
+    meta.querySelector('.time').textContent = new Date(p.t).toLocaleString();
+    card.appendChild(meta);
+    card.addEventListener('click', () => openShelfDetail(id));
+    shelfListContent.appendChild(card);
+  });
+}
+
+function openShelfDetail(id) {
+  const p = shelfCache[id];
+  if (!p) return;
+  currentShelfId = id;
+  if (p.image) {
+    shelfDetailImg.src = p.image;
+    shelfDetailImg.style.display = 'block';
+  } else {
+    shelfDetailImg.style.display = 'none';
+  }
+  shelfDetailText.textContent = p.text || '';
+  shelfListModal.classList.remove('open');
+  shelfDetailModal.classList.add('open');
+}
+
+shelfBtn.addEventListener('click', () => {
+  shelfListModal.classList.add('open');
+  loadShelf();
+});
+closeShelfListBtn.addEventListener('click', () => shelfListModal.classList.remove('open'));
+closeShelfDetailBtn.addEventListener('click', () => shelfDetailModal.classList.remove('open'));
+
+deleteShelfBtn.addEventListener('click', async () => {
+  const path = shelfPath();
+  if (!path || !currentShelfId) return;
+  try {
+    await fetch(`${path}/${currentShelfId}.json`, { method: 'DELETE' });
+    delete shelfCache[currentShelfId];
+  } catch (err) {
+    console.error('Delete pill failed:', err);
+  }
+  shelfDetailModal.classList.remove('open');
+  renderShelfList();
+  shelfListModal.classList.add('open');
+});
+
+shelfCopyToClaudeBtn.addEventListener('click', async () => {
+  const p = shelfCache[currentShelfId];
+  if (!p) return;
+  const ok = await copyContextToClipboard({ text: p.text, image: p.image });
+  statusEl.textContent = ok
+    ? '✓ Copied — opening Claude, paste with Ctrl/Cmd+V'
+    : '⚠ Copy failed — opening Claude anyway';
+  window.open('https://claude.ai/new', '_blank');
+});
+
+// ---- + New pill: paste something copied from Claude, save it to the Shelf ----
+newPillBtn.addEventListener('click', () => {
+  shelfListModal.classList.remove('open');
+  newPillModal.classList.add('open');
+});
+closeNewPillBtn.addEventListener('click', () => newPillModal.classList.remove('open'));
+
+newPillPasteArea.addEventListener('paste', async (e) => {
+  e.preventDefault();
+  pendingNewPill = { text: '', image: null };
+  const items = e.clipboardData ? e.clipboardData.items : [];
+  for (const item of items) {
+    if (item.kind === 'string' && item.type === 'text/plain') {
+      await new Promise(resolve => item.getAsString(t => { pendingNewPill.text = t; resolve(); }));
+    } else if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const blob = item.getAsFile();
+      pendingNewPill.image = await blobToDataUrl(blob);
+    }
+  }
+  newPillPasteArea.textContent = pendingNewPill.text || (pendingNewPill.image ? '(image pasted)' : '');
+  if (pendingNewPill.image) {
+    newPillPreviewImg.src = pendingNewPill.image;
+    newPillPreviewImg.style.display = 'block';
+  } else {
+    newPillPreviewImg.style.display = 'none';
+  }
+});
+
+saveNewPillBtn.addEventListener('click', async () => {
+  const path = shelfPath();
+  if (!path) {
+    alert('Set a Session ID in Settings first');
+    return;
+  }
+  if (!pendingNewPill.text && !pendingNewPill.image) {
+    alert('Paste something from Claude first');
+    return;
+  }
+  try {
+    await fetch(`${path}.json`, {
+      method: 'POST',
+      body: JSON.stringify({ text: pendingNewPill.text || '', image: pendingNewPill.image || null, t: Date.now() })
+    });
+    newPillModal.classList.remove('open');
+    newPillPasteArea.textContent = '';
+    newPillPreviewImg.style.display = 'none';
+    pendingNewPill = { text: '', image: null };
+    loadShelf();
+    shelfListModal.classList.add('open');
+  } catch (err) {
+    console.error('Save pill failed:', err);
+    alert('Failed to save pill');
+  }
+});
+
 function extractTriggeredQuestion(recognizedText) {
   const triggers = ['??', '..'];
   for (const trig of triggers) {
@@ -915,6 +1383,7 @@ let processing = false;
 
 // Load keys as soon as everything above is defined
 fetchKeysFromFirebase();
+refreshPillBadge();
 
 async function runPipeline() {
   if (processing || strokes.length === 0) return;
@@ -950,6 +1419,7 @@ async function runPipeline() {
     statusEl.textContent = '⚠ ' + err.message;
   } finally {
     processing = false;
+    refreshPillBadge();
   }
 }
 </script>
