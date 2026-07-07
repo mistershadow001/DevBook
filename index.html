@@ -2,19 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>AI Notebook — Prototype</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; }
+  html, body {
+    overscroll-behavior: none;
+  }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: #f4f1ea;
     color: #1a1a1a;
-    height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
   header {
     padding: 10px 16px;
@@ -59,17 +65,26 @@
   }
   #settingsPanel input {
     width: 100%;
-    padding: 6px 8px;
+    padding: 10px 10px;
     margin-top: 4px;
     border: 1px solid #ccc;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 16px; /* 16px avoids iOS auto-zoom-on-focus */
   }
   #settingsPanel .note {
     color: #a15c00;
     font-size: 11px;
     margin-top: 6px;
   }
+  #keysStatus {
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #f0f0f0;
+    margin-top: 4px;
+  }
+  #keysStatus.ok { color: #0a7a2f; background: #eafaf0; }
+  #keysStatus.err { color: #b3261e; background: #fdecea; }
   #canvasWrap {
     flex: 1;
     position: relative;
@@ -103,17 +118,132 @@
     align-items: center;
   }
   footer button {
-    padding: 8px 14px;
+    padding: 12px 16px;
     border-radius: 8px;
     border: 1px solid #ccc;
     background: #f0f0f0;
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
+    min-height: 44px; /* comfortable touch target */
   }
   footer .hint {
     font-size: 11px;
     color: #888;
     margin-left: auto;
+  }
+  #settingsBtn, #typeToggleBtn {
+    min-height: 36px;
+  }
+  #typeBar {
+    display: none;
+    padding: 8px 16px;
+    background: #fff;
+    border-top: 1px solid #eee;
+    gap: 8px;
+  }
+  #typeBar.open { display: flex; }
+  #typeInput {
+    flex: 1;
+    padding: 12px 12px;
+    border-radius: 20px;
+    border: 1px solid #ccc;
+    font-size: 16px; /* avoids iOS zoom-on-focus */
+  }
+  #typeSendBtn {
+    padding: 10px 18px;
+    border-radius: 20px;
+    border: 1px solid #ccc;
+    background: #1a56db;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  @media (max-width: 480px) {
+    header h1 { font-size: 13px; }
+    #status { font-size: 11px; }
+  }
+
+  /* ---- Notes ---- */
+  .modalOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    align-items: flex-start;
+    justify-content: center;
+    padding: env(safe-area-inset-top) 12px 12px;
+    overflow-y: auto;
+  }
+  .modalOverlay.open { display: flex; }
+  .modalBox {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 520px;
+    width: 100%;
+    margin-top: 40px;
+    padding: 16px;
+  }
+  .modalBox h2 { margin: 0 0 12px; font-size: 16px; }
+  .modalCloseBtn {
+    float: right;
+    border: none;
+    background: none;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .noteCard {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .noteCard img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    background: #fafafa;
+    flex-shrink: 0;
+  }
+  .noteCard .meta { flex: 1; min-width: 0; }
+  .noteCard .meta .title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .noteCard .meta .preview {
+    font-size: 12px;
+    color: #666;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .noteCard .meta .time { font-size: 10px; color: #999; margin-top: 4px; }
+  .noteDetailImg { width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; }
+  .noteDetailText { white-space: pre-wrap; font-size: 14px; line-height: 1.5; margin-bottom: 14px; }
+  .notesEmpty { color: #888; font-size: 13px; text-align: center; padding: 20px 0; }
+  .noteDeleteBtn {
+    background: #fdecea;
+    color: #b3261e;
+    border: 1px solid #f3c8c4;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 40px;
   }
 </style>
 </head>
@@ -122,28 +252,49 @@
 <header>
   <h1>📓 AI Notebook — Prototype</h1>
   <div id="status">Write your question, then finish with ?? and pause</div>
-  <button id="settingsBtn">⚙ Keys</button>
+  <button id="typeToggleBtn">⌨ Type</button>
+  <button id="notesBtn">🗒 Notes</button>
+  <button id="settingsBtn">⚙ Settings</button>
   <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
     <input type="checkbox" id="speakToggle" checked> Speak answers
   </label>
 </header>
 
 <div id="settingsPanel">
-  <label>MyScript Application Key</label>
-  <input id="msAppKey" type="text" placeholder="xxxxxxxx-xxxx-..." value="9abc2a0e-db72-4c99-8271-2a9686f75f7c">
-  <label>MyScript HMAC Key</label>
-  <input id="msHmacKey" type="text" placeholder="xxxxxxxx-xxxx-..." value="10be4014-b4b9-4f27-a188-0c325d2391d6">
-  <label>Groq API Key</label>
-  <input id="groqKey" type="text" placeholder="gsk_..." value="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">
-  <div class="note">Keys are kept only in this browser tab's memory for this session — not saved, not sent anywhere except directly to MyScript/Groq's own APIs.</div>
+  <label>API Keys</label>
+  <div id="keysStatus">Loading keys from Firebase…</div>
+  <div class="note">Keys are fetched securely from Firebase and never hardcoded or stored in this page.</div>
   <label>Session ID (use the same one on other devices to sync)</label>
   <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
-  <button id="connectSyncBtn" style="margin-top:6px; padding:6px 10px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer;">Connect Sync</button>
+  <button id="connectSyncBtn" style="margin-top:6px; padding:8px 12px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer; min-height:40px;">Connect Sync</button>
   <div class="note">Leave blank to work offline (no sync).</div>
 </div>
 
 <div id="canvasWrap">
   <canvas id="board"></canvas>
+</div>
+
+<div id="typeBar">
+  <input id="typeInput" type="text" placeholder="Type your question instead of writing…" enterkeyhint="send">
+  <button id="typeSendBtn">Ask</button>
+</div>
+
+<div id="notesListModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeNotesListBtn">✕</button>
+    <h2>🗒 Saved Notes</h2>
+    <div id="notesListContent"><div class="notesEmpty">Loading…</div></div>
+  </div>
+</div>
+
+<div id="noteDetailModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeNoteDetailBtn">✕</button>
+    <h2 id="noteDetailTitle">Note</h2>
+    <img id="noteDetailImg" class="noteDetailImg" alt="Saved note diagram">
+    <div id="noteDetailText" class="noteDetailText"></div>
+    <button class="noteDeleteBtn" id="deleteNoteBtn">🗑 Delete note</button>
+  </div>
 </div>
 
 <div id="answerBar">
@@ -154,6 +305,7 @@
 <footer>
   <button id="clearBtn">Clear page</button>
   <button id="recognizeBtn">Recognize now</button>
+  <button id="saveNoteBtn">💾 Save note</button>
   <span class="hint">V1 trigger: finish a question with ?? then pause ~1.5s</span>
 </footer>
 
@@ -256,12 +408,46 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('open'));
 
+// ---- API keys: fetched from Firebase, never hardcoded ----
+let liveKeys = { msApp: '', msHmac: '', groq: '' };
+
 function getKeys() {
-  return {
-    msApp: document.getElementById('msAppKey').value.trim(),
-    msHmac: document.getElementById('msHmacKey').value.trim(),
-    groq: document.getElementById('groqKey').value.trim()
-  };
+  return liveKeys;
+}
+
+async function fetchKeysFromFirebase() {
+  const keysStatusEl = document.getElementById('keysStatus');
+  keysStatusEl.textContent = 'Loading keys from Firebase…';
+  keysStatusEl.className = '';
+  try {
+    const [msAppRes, msHmacRes, groqRes] = await Promise.all([
+      fetch(`${FIREBASE_URL}/MyScriptAPP.json`),
+      fetch(`${FIREBASE_URL}/MyScriptHMAC.json`),
+      fetch(`${FIREBASE_URL}/groq-api.json`)
+    ]);
+    const [msApp, msHmac, groq] = await Promise.all([
+      msAppRes.json(),
+      msHmacRes.json(),
+      groqRes.json()
+    ]);
+    liveKeys = {
+      msApp: (msApp || '').toString().trim(),
+      msHmac: (msHmac || '').toString().trim(),
+      groq: (groq || '').toString().trim()
+    };
+    const missing = Object.entries(liveKeys).filter(([, v]) => !v).map(([k]) => k);
+    if (missing.length) {
+      keysStatusEl.textContent = '⚠ Missing from Firebase: ' + missing.join(', ');
+      keysStatusEl.className = 'err';
+    } else {
+      keysStatusEl.textContent = '✓ Keys loaded from Firebase';
+      keysStatusEl.className = 'ok';
+    }
+  } catch (err) {
+    console.error('Failed to load keys from Firebase:', err);
+    keysStatusEl.textContent = '⚠ Failed to load keys — ' + err.message;
+    keysStatusEl.className = 'err';
+  }
 }
 
 // ---- MyScript HMAC ----
@@ -495,6 +681,225 @@ function renderRemoteEntry(entry) {
 
 document.getElementById('connectSyncBtn').addEventListener('click', connectFirebaseListener);
 document.getElementById('sessionId').addEventListener('change', connectFirebaseListener);
+
+// ---- Type-instead bar (mobile-friendly alternative to handwriting) ----
+const typeToggleBtn = document.getElementById('typeToggleBtn');
+const typeBar = document.getElementById('typeBar');
+const typeInput = document.getElementById('typeInput');
+const typeSendBtn = document.getElementById('typeSendBtn');
+
+typeToggleBtn.addEventListener('click', () => {
+  typeBar.classList.toggle('open');
+  if (typeBar.classList.contains('open')) typeInput.focus();
+});
+
+async function runTypedPipeline(question) {
+  if (processing || !question) return;
+  processing = true;
+  try {
+    lastQ.textContent = 'Q: ' + question;
+    statusEl.textContent = 'Thinking…';
+    const answer = await askGroq(question);
+    lastA.textContent = answer;
+    writeAnswerOnCanvas(answer);
+    statusEl.textContent = 'Speaking answer…';
+    speak(answer);
+    pushEntryToFirebase(question, answer);
+    statusEl.textContent = 'Done — ask another question';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '⚠ ' + err.message;
+  } finally {
+    processing = false;
+  }
+}
+
+typeSendBtn.addEventListener('click', () => {
+  const q = typeInput.value.trim();
+  if (!q) return;
+  typeInput.value = '';
+  runTypedPipeline(q);
+});
+
+typeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    typeSendBtn.click();
+  }
+});
+// ---- Notes: save diagrams/handwriting as-is, plus a cleaned-up typed version ----
+const notesBtn = document.getElementById('notesBtn');
+const saveNoteBtn = document.getElementById('saveNoteBtn');
+const notesListModal = document.getElementById('notesListModal');
+const notesListContent = document.getElementById('notesListContent');
+const closeNotesListBtn = document.getElementById('closeNotesListBtn');
+const noteDetailModal = document.getElementById('noteDetailModal');
+const noteDetailTitle = document.getElementById('noteDetailTitle');
+const noteDetailImg = document.getElementById('noteDetailImg');
+const noteDetailText = document.getElementById('noteDetailText');
+const closeNoteDetailBtn = document.getElementById('closeNoteDetailBtn');
+const deleteNoteBtn = document.getElementById('deleteNoteBtn');
+let currentNoteId = null;
+let notesCache = {};
+
+function notesPath() {
+  const sid = getSessionId();
+  if (!sid) return null;
+  return `${FIREBASE_URL}/notes/${sid}`;
+}
+
+// Downscaled JPEG snapshot of the canvas so diagrams are preserved as-is
+// without bloating Firebase with full-resolution PNGs.
+function getCanvasSnapshot(maxWidth = 500) {
+  const scale = Math.min(1, maxWidth / canvas.width);
+  const tmp = document.createElement('canvas');
+  tmp.width = canvas.width * scale;
+  tmp.height = canvas.height * scale;
+  const tctx = tmp.getContext('2d');
+  tctx.fillStyle = '#fffdf7';
+  tctx.fillRect(0, 0, tmp.width, tmp.height);
+  tctx.drawImage(canvas, 0, 0, tmp.width, tmp.height);
+  return tmp.toDataURL('image/jpeg', 0.7);
+}
+
+// Turns raw handwriting-OCR text into a clean, properly typed note
+async function cleanUpTextWithGroq(rawText) {
+  const { groq } = getKeys();
+  if (!groq || !rawText.trim()) return '';
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + groq },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: 'You convert raw, error-prone handwriting-OCR text into a clean, well-structured typed note. Fix obvious OCR mistakes and add headings or bullet points where that helps readability, but never invent new information. Return only the cleaned note text, with no preamble.' },
+          { role: 'user', content: rawText }
+        ],
+        max_tokens: 600
+      })
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  } catch (err) {
+    console.warn('Note cleanup failed:', err);
+    return '';
+  }
+}
+
+async function saveCurrentNote() {
+  const path = notesPath();
+  if (!path) {
+    statusEl.textContent = '⚠ Set a Session ID in Settings first to save notes';
+    return;
+  }
+  if (strokes.length === 0) {
+    statusEl.textContent = '⚠ Nothing on the page to save yet';
+    return;
+  }
+  statusEl.textContent = 'Saving note…';
+  const image = getCanvasSnapshot();
+  let rawText = '';
+  let cleanText = '';
+  try {
+    rawText = await recognizeHandwriting();
+    cleanText = await cleanUpTextWithGroq(rawText);
+  } catch (err) {
+    console.warn('Note text conversion skipped (diagram-only save):', err.message);
+  }
+  const title = (cleanText || rawText || 'Untitled note').split('\n')[0].slice(0, 60);
+  const note = { title, image, rawText, cleanText, t: Date.now() };
+  try {
+    const res = await fetch(`${path}.json`, { method: 'POST', body: JSON.stringify(note) });
+    if (!res.ok) throw new Error('status ' + res.status);
+    statusEl.textContent = '✓ Note saved';
+  } catch (err) {
+    console.error('Save note failed:', err);
+    statusEl.textContent = '⚠ Failed to save note';
+  }
+}
+
+async function loadNotes() {
+  const path = notesPath();
+  if (!path) {
+    notesListContent.innerHTML = '<div class="notesEmpty">Set a Session ID in Settings to view notes saved from this session.</div>';
+    return;
+  }
+  notesListContent.innerHTML = '<div class="notesEmpty">Loading…</div>';
+  try {
+    const res = await fetch(`${path}.json`);
+    const data = await res.json();
+    notesCache = data || {};
+    renderNotesList();
+  } catch (err) {
+    notesListContent.innerHTML = '<div class="notesEmpty">⚠ Failed to load notes</div>';
+  }
+}
+
+function renderNotesList() {
+  const ids = Object.keys(notesCache).sort((a, b) => (notesCache[b].t || 0) - (notesCache[a].t || 0));
+  if (ids.length === 0) {
+    notesListContent.innerHTML = '<div class="notesEmpty">No saved notes yet — draw something and tap 💾 Save.</div>';
+    return;
+  }
+  notesListContent.innerHTML = '';
+  ids.forEach(id => {
+    const n = notesCache[id];
+    const preview = n.cleanText || n.rawText || '(diagram only, no text recognized)';
+    const card = document.createElement('div');
+    card.className = 'noteCard';
+    const img = document.createElement('img');
+    img.src = n.image;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = `
+      <div class="title"></div>
+      <div class="preview"></div>
+      <div class="time"></div>`;
+    meta.querySelector('.title').textContent = n.title || 'Untitled note';
+    meta.querySelector('.preview').textContent = preview;
+    meta.querySelector('.time').textContent = new Date(n.t).toLocaleString();
+    card.appendChild(img);
+    card.appendChild(meta);
+    card.addEventListener('click', () => openNoteDetail(id));
+    notesListContent.appendChild(card);
+  });
+}
+
+function openNoteDetail(id) {
+  const n = notesCache[id];
+  if (!n) return;
+  currentNoteId = id;
+  noteDetailTitle.textContent = n.title || 'Untitled note';
+  noteDetailImg.src = n.image;
+  noteDetailText.textContent = n.cleanText || n.rawText || '(no typed text — diagram only)';
+  notesListModal.classList.remove('open');
+  noteDetailModal.classList.add('open');
+}
+
+deleteNoteBtn.addEventListener('click', async () => {
+  const path = notesPath();
+  if (!path || !currentNoteId) return;
+  try {
+    await fetch(`${path}/${currentNoteId}.json`, { method: 'DELETE' });
+    delete notesCache[currentNoteId];
+  } catch (err) {
+    console.error('Delete note failed:', err);
+  }
+  noteDetailModal.classList.remove('open');
+  renderNotesList();
+  notesListModal.classList.add('open');
+});
+
+notesBtn.addEventListener('click', () => {
+  notesListModal.classList.add('open');
+  loadNotes();
+});
+closeNotesListBtn.addEventListener('click', () => notesListModal.classList.remove('open'));
+closeNoteDetailBtn.addEventListener('click', () => noteDetailModal.classList.remove('open'));
+saveNoteBtn.addEventListener('click', saveCurrentNote);
+
 function extractTriggeredQuestion(recognizedText) {
   const triggers = ['??', '..'];
   for (const trig of triggers) {
@@ -507,6 +912,9 @@ function extractTriggeredQuestion(recognizedText) {
 }
 
 let processing = false;
+
+// Load keys as soon as everything above is defined
+fetchKeysFromFirebase();
 
 async function runPipeline() {
   if (processing || strokes.length === 0) return;
