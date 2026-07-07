@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Notebook — Prototype</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f4f1ea;
+    color: #1a1a1a;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 15px;
+    margin: 0;
+    font-weight: 600;
+  }
+  #status {
+    font-size: 12px;
+    color: #666;
+    min-height: 16px;
+  }
+  #settingsBtn {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background: #fafafa;
+    cursor: pointer;
+  }
+  #settingsPanel {
+    display: none;
+    padding: 12px 16px;
+    background: #fff9ee;
+    border-bottom: 1px solid #ddd;
+    font-size: 13px;
+  }
+  #settingsPanel.open { display: block; }
+  #settingsPanel label {
+    display: block;
+    margin-top: 8px;
+    font-weight: 600;
+  }
+  #settingsPanel input {
+    width: 100%;
+    padding: 6px 8px;
+    margin-top: 4px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  #settingsPanel .note {
+    color: #a15c00;
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  #canvasWrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: #fffdf7;
+    touch-action: none;
+  }
+  #answerBar {
+    padding: 12px 16px;
+    background: #fff;
+    border-top: 1px solid #ddd;
+    max-height: 30vh;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  #answerBar .q { color: #666; font-size: 12px; margin-bottom: 4px; }
+  #answerBar .a { white-space: pre-wrap; }
+  footer {
+    padding: 8px 16px;
+    background: #fff;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  footer button {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  footer .hint {
+    font-size: 11px;
+    color: #888;
+    margin-left: auto;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📓 AI Notebook — Prototype</h1>
+  <div id="status">Write your question, then finish with ?? and pause</div>
+  <button id="settingsBtn">⚙ Keys</button>
+  <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
+    <input type="checkbox" id="speakToggle" checked> Speak answers
+  </label>
+</header>
+
+<div id="settingsPanel">
+  <label>MyScript Application Key</label>
+  <input id="msAppKey" type="text" placeholder="xxxxxxxx-xxxx-..." value="9abc2a0e-db72-4c99-8271-2a9686f75f7c">
+  <label>MyScript HMAC Key</label>
+  <input id="msHmacKey" type="text" placeholder="xxxxxxxx-xxxx-..." value="10be4014-b4b9-4f27-a188-0c325d2391d6">
+  <label>Groq API Key</label>
+  <input id="groqKey" type="text" placeholder="gsk_..." value="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">
+  <div class="note">Keys are kept only in this browser tab's memory for this session — not saved, not sent anywhere except directly to MyScript/Groq's own APIs.</div>
+  <label>Session ID (use the same one on other devices to sync)</label>
+  <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
+  <button id="connectSyncBtn" style="margin-top:6px; padding:6px 10px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer;">Connect Sync</button>
+  <div class="note">Leave blank to work offline (no sync).</div>
+</div>
+
+<div id="canvasWrap">
+  <canvas id="board"></canvas>
+</div>
+
+<div id="answerBar">
+  <div class="q" id="lastQ"></div>
+  <div class="a" id="lastA">Answers will appear here, and be spoken aloud.</div>
+</div>
+
+<footer>
+  <button id="clearBtn">Clear page</button>
+  <button id="recognizeBtn">Recognize now</button>
+  <span class="hint">V1 trigger: finish a question with ?? then pause ~1.5s</span>
+</footer>
+
+<script>
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const lastQ = document.getElementById('lastQ');
+const lastA = document.getElementById('lastA');
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const prev = canvas.toDataURL ? null : null;
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#1a1a1a';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ---- Stroke capture ----
+let strokes = [];       // finished strokes: [{x:[],y:[],t:[]}]
+let currentStroke = null;
+let drawing = false;
+let pauseTimer = null;
+const PAUSE_MS = 1400;
+
+function pointerPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top, t: Date.now() };
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  drawing = true;
+  clearTimeout(pauseTimer);
+  const p = pointerPos(e);
+  currentStroke = { x: [p.x], y: [p.y], t: [p.t] };
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!drawing) return;
+  const p = pointerPos(e);
+  currentStroke.x.push(p.x);
+  currentStroke.y.push(p.y);
+  currentStroke.t.push(p.t);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+});
+
+function endStroke() {
+  if (!drawing) return;
+  drawing = false;
+  if (currentStroke && currentStroke.x.length >= 1) {
+    // Duplicate single-point strokes (quick taps/dots) so MyScript gets a valid 2-point stroke
+    if (currentStroke.x.length === 1) {
+      currentStroke.x.push(currentStroke.x[0] + 0.1);
+      currentStroke.y.push(currentStroke.y[0] + 0.1);
+      currentStroke.t.push(currentStroke.t[0] + 1);
+    }
+    strokes.push(currentStroke);
+  }
+  currentStroke = null;
+  clearTimeout(pauseTimer);
+  pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
+}
+canvas.addEventListener('pointerup', endStroke);
+canvas.addEventListener('pointerleave', endStroke);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(pauseTimer);
+    speechSynthesis.cancel();
+  }
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  strokes = [];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  statusEl.textContent = 'Cleared. Write your question, then finish with ?? and pause';
+});
+
+document.getElementById('recognizeBtn').addEventListener('click', () => {
+  clearTimeout(pauseTimer);
+  runPipeline();
+});
+
+// Auto-trigger check: recognize after pause, then look for ?? or .. in the text
+async function checkTrigger() {
+  if (strokes.length === 0) return;
+  await runPipeline();
+}
+
+// ---- Settings ----
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('open'));
+
+function getKeys() {
+  return {
+    msApp: document.getElementById('msAppKey').value.trim(),
+    msHmac: document.getElementById('msHmacKey').value.trim(),
+    groq: document.getElementById('groqKey').value.trim()
+  };
+}
+
+// ---- MyScript HMAC ----
+function computeHmac(bodyString, appKey, hmacKey) {
+  return CryptoJS.HmacSHA512(bodyString, appKey + hmacKey).toString(CryptoJS.enc.Hex);
+}
+
+// ---- Convert strokes to MyScript iink format ----
+function buildMyScriptPayload() {
+  const strokeGroups = [{
+    strokes: strokes.map((s, i) => ({
+      id: 'stroke-' + i,
+      pointerType: 'PEN',
+      pointerId: 0,
+      x: s.x,
+      y: s.y,
+      t: s.t,
+      p: s.x.map(() => 0.5)
+    }))
+  }];
+  const rect = canvas.getBoundingClientRect();
+  return {
+    configuration: { lang: 'en_US' },
+    contentType: 'Text',
+    xDPI: 96,
+    yDPI: 96,
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    strokeGroups
+  };
+}
+
+async function recognizeHandwriting() {
+  const { msApp, msHmac } = getKeys();
+  if (!msApp || !msHmac) throw new Error('Missing MyScript keys — open ⚙ Keys');
+  if (strokes.length === 0) throw new Error('Nothing written yet — draw on the canvas first');
+
+  const payload = buildMyScriptPayload();
+  console.log('Strokes recorded:', strokes.length, '| strokeGroups[0].strokes.length:', payload.strokeGroups[0].strokes.length);
+  console.log('Full payload JSON:', JSON.stringify(payload));
+  const bodyString = JSON.stringify(payload);
+  const hmac = computeHmac(bodyString, msApp, msHmac);
+
+  const res = await fetch('https://cloud.myscript.com/api/v4.0/iink/batch', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json,text/plain',
+      'Content-Type': 'application/json',
+      'applicationKey': msApp,
+      'hmac': hmac
+    },
+    body: bodyString
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('MyScript error ' + res.status + ': ' + errText.slice(0, 200));
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await res.json();
+    return data.label || data.result?.label || JSON.stringify(data);
+  } else {
+    // Text content type often returns plain text directly
+    return await res.text();
+  }
+}
+
+// ---- Groq answer ----
+async function askGroq(question) {
+  const { groq } = getKeys();
+  if (!groq) throw new Error('Missing Groq key — open ⚙ Keys');
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + groq
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: 'You are a concise, friendly study tutor. Answer clearly in 2-4 sentences suitable for being read aloud.' },
+        { role: 'user', content: question }
+      ],
+      max_tokens: 300
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('Groq error ' + res.status + ': ' + errText.slice(0, 200));
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '(no answer returned)';
+}
+
+// ---- TTS ----
+function speak(text) {
+  if (!document.getElementById('speakToggle').checked) return;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1.0;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utter);
+}
+
+// ---- Render answer in handwriting-style font directly on the canvas ----
+let inkY = 40; // tracks vertical position for next handwritten answer
+
+function writeAnswerOnCanvas(text) {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const fontSize = 26;
+  const lineHeight = fontSize * 1.3;
+  const maxWidth = rect.width - 60;
+
+  ctx.font = fontSize + "px 'Caveat', cursive";
+  ctx.fillStyle = '#1a56db'; // distinct ink color from user's writing
+  ctx.textBaseline = 'top';
+
+  // find lowest point of existing strokes to write below them
+  let lowestY = inkY;
+  strokes.forEach(s => { s.y.forEach(y => { if (y > lowestY) lowestY = y; }); });
+  let y = lowestY + 30;
+
+  // simple word-wrap
+  const words = text.split(' ');
+  let line = '';
+  for (const word of words) {
+    const test = line + word + ' ';
+    if (ctx.measureText(test).width > maxWidth && line !== '') {
+      ctx.fillText(line, 30, y);
+      y += lineHeight;
+      line = word + ' ';
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, 30, y);
+  inkY = y + lineHeight;
+}
+
+// ---- Firebase sync (cross-device) ----
+const FIREBASE_URL = 'https://devbook-4a360-default-rtdb.asia-southeast1.firebasedatabase.app';
+let firebaseListener = null;
+let seenEntryIds = new Set();
+
+function getSessionId() {
+  return document.getElementById('sessionId').value.trim();
+}
+
+async function pushEntryToFirebase(question, answer) {
+  const sessionId = getSessionId();
+  if (!sessionId) {
+    console.log('No session ID set — skipping Firebase push');
+    return;
+  }
+  try {
+    const res = await fetch(`${FIREBASE_URL}/sessions/${sessionId}/entries.json`, {
+      method: 'POST',
+      body: JSON.stringify({ question, answer, t: Date.now() })
+    });
+    console.log('Firebase push response status:', res.status);
+    if (res.ok) {
+      const data = await res.json();
+      console.log('Firebase push succeeded, entry id:', data.name);
+      seenEntryIds.add(data.name); // mark our own entry as already-seen so we don't re-render it
+    } else {
+      console.error('Firebase push failed with status', res.status, await res.text());
+    }
+  } catch (err) {
+    console.error('Firebase push failed:', err);
+  }
+}
+
+function connectFirebaseListener() {
+  if (firebaseListener) {
+    firebaseListener.close();
+    firebaseListener = null;
+  }
+  const sessionId = getSessionId();
+  if (!sessionId) {
+    statusEl.textContent = 'Sync off (no session ID)';
+    return;
+  }
+  seenEntryIds = new Set();
+  const url = `${FIREBASE_URL}/sessions/${sessionId}/entries.json`;
+  console.log('Connecting Firebase listener to:', url);
+  firebaseListener = new EventSource(url);
+
+  firebaseListener.addEventListener('put', (e) => {
+    console.log('Firebase put event received:', e.data);
+    const payload = JSON.parse(e.data);
+    if (!payload.data) return;
+
+    if (payload.path === '/') {
+      // Initial full snapshot: data is an object of {pushId: entry, ...}
+      Object.entries(payload.data).forEach(([id, entry]) => {
+        if (!seenEntryIds.has(id)) {
+          seenEntryIds.add(id);
+          renderRemoteEntry(entry);
+        }
+      });
+    } else {
+      // Incremental update: path is like "/-NxAbc123", data is the entry itself
+      const id = payload.path.slice(1);
+      if (!seenEntryIds.has(id)) {
+        seenEntryIds.add(id);
+        renderRemoteEntry(payload.data);
+      }
+    }
+  });
+
+  firebaseListener.onopen = () => {
+    console.log('Firebase EventSource connection opened successfully');
+  };
+
+  firebaseListener.onerror = (err) => {
+    console.error('Firebase EventSource error:', err);
+    statusEl.textContent = 'Sync connection issue — retrying…';
+  };
+
+  statusEl.textContent = 'Synced to session: ' + sessionId;
+}
+
+function renderRemoteEntry(entry) {
+  if (!entry || !entry.answer) return;
+  lastQ.textContent = 'Q (synced): ' + entry.question;
+  lastA.textContent = entry.answer;
+  writeAnswerOnCanvas(entry.answer);
+}
+
+document.getElementById('connectSyncBtn').addEventListener('click', connectFirebaseListener);
+document.getElementById('sessionId').addEventListener('change', connectFirebaseListener);
+function extractTriggeredQuestion(recognizedText) {
+  const triggers = ['??', '..'];
+  for (const trig of triggers) {
+    const idx = recognizedText.indexOf(trig);
+    if (idx !== -1) {
+      return recognizedText.slice(0, idx).trim();
+    }
+  }
+  return null; // no trigger found yet
+}
+
+let processing = false;
+
+async function runPipeline() {
+  if (processing || strokes.length === 0) return;
+  processing = true;
+  try {
+    statusEl.textContent = 'Reading handwriting…';
+    const recognized = await recognizeHandwriting();
+
+    const question = extractTriggeredQuestion(recognized) || recognized.trim();
+    if (!question) {
+      statusEl.textContent = 'No text recognized yet — keep writing';
+      processing = false;
+      return;
+    }
+
+    lastQ.textContent = 'Q: ' + question;
+    statusEl.textContent = 'Thinking…';
+
+    const answer = await askGroq(question);
+    lastA.textContent = answer;
+    writeAnswerOnCanvas(answer);
+    statusEl.textContent = 'Speaking answer…';
+    speak(answer);
+    pushEntryToFirebase(question, answer);
+
+    // Reset the recognition buffer so the next trigger only sends new ink,
+    // not this question (and answer) again. The visible ink stays on the canvas.
+    strokes = [];
+
+    statusEl.textContent = 'Done — keep writing your next question';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '⚠ ' + err.message;
+  } finally {
+    processing = false;
+  }
+}
+</script>
+
+</body>
+</html>
