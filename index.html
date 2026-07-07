@@ -22,6 +22,29 @@
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
+  /* ---- Print (native browser Share > Print on mobile) ----
+     By default this hides everything and shows only #printPagesContainer,
+     which JS fills with each page's snapshot right before printing (see
+     the 'beforeprint' handler near the PDF export code below). This makes
+     a plain browser print look like actual notebook pages instead of the
+     app's toolbars, buttons, and drawers. */
+  #printPagesContainer { display: none; }
+  @media print {
+    body * { visibility: hidden; }
+    #printPagesContainer, #printPagesContainer * { visibility: visible; }
+    #printPagesContainer {
+      display: block;
+      position: absolute;
+      left: 0; top: 0;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .printPage { width: 100%; page-break-after: always; }
+    .printPage:last-child { page-break-after: auto; }
+    .printPage img { width: 100%; height: auto; display: block; }
+    @page { margin: 0.3in; }
+  }
   /* ---- Notebook-feel chrome ---- */
   #canvasWrap {
     flex: 1;
@@ -637,6 +660,11 @@
   <div class="a" id="lastA">Write your question, finish with ?? and pause — the answer shows up here.</div>
 </div>
 
+<!-- Filled with each page's snapshot right before printing (see 'beforeprint'
+     handler in the script below), so a native browser Share > Print prints
+     clean notebook pages instead of the app's UI. -->
+<div id="printPagesContainer"></div>
+
 <script>
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -760,7 +788,10 @@ function endStroke() {
   if (mode === 'ask') pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
   captureCurrentPage();
   savePagesToStorage();
-  pushLiveDrawIfSecondary();
+  // Live-mirroring the secondary device's in-progress writing onto the
+  // primary's canvas was disabled on request — the primary should only
+  // ever show the final answer, not what's being written on the secondary.
+  // pushLiveDrawIfSecondary();
 }
 canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointerleave', endStroke);
@@ -1282,7 +1313,7 @@ function generateSessionId() {
   return Math.random().toString(36).slice(2, 8);
 }
 
-async function pushEntryToFirebase(question, answer) {
+async function pushEntryToFirebase(question, answer, hideQuestion) {
   const sessionId = getSessionId();
   if (!sessionId) {
     console.log('No session ID set — skipping Firebase push');
@@ -1303,7 +1334,7 @@ async function pushEntryToFirebase(question, answer) {
   try {
     const res = await fetch(`${FIREBASE_URL}/sessions/${sessionId}/entries/${localId}.json`, {
       method: 'PUT',
-      body: JSON.stringify({ question, answer, t: Date.now() })
+      body: JSON.stringify({ question, answer, t: Date.now(), hideQuestion: !!hideQuestion })
     });
     console.log('Firebase push response status:', res.status);
     if (!res.ok) {
@@ -1346,7 +1377,7 @@ function connectFirebaseListener() {
       if (deviceRole !== 'secondary') {
         const latest = entries.sort((a, b) => (a[1].t || 0) - (b[1].t || 0)).pop();
         if (latest) {
-          lastQ.textContent = 'Q (synced): ' + latest[1].question;
+          lastQ.textContent = latest[1].hideQuestion ? '' : 'Q (synced): ' + latest[1].question;
           lastA.textContent = latest[1].answer;
         }
       }
@@ -1379,7 +1410,7 @@ function connectFirebaseListener() {
 
 function renderRemoteEntry(entry) {
   if (!entry || !entry.answer) return;
-  lastQ.textContent = 'Q (synced): ' + entry.question;
+  lastQ.textContent = entry.hideQuestion ? '' : 'Q (synced): ' + entry.question;
   lastA.textContent = entry.answer;
   statusEl.textContent = 'A synced answer is arriving…';
   animateAnswerOnCanvas(entry.answer, () => {
@@ -1417,11 +1448,13 @@ function listenPendingQuestions() {
       statusEl.textContent = '📥 Question from secondary device — thinking…';
       try {
         const answer = await askGroq(entry.question);
-        lastQ.textContent = 'Q (from secondary): ' + entry.question;
+        // Question text is intentionally not shown on the primary — only
+        // the answer should appear here for questions sent from a secondary.
+        lastQ.textContent = '';
         lastA.textContent = answer;
         await new Promise(resolve => animateAnswerOnCanvas(answer, resolve));
         speak(answer);
-        pushEntryToFirebase(entry.question, answer);
+        pushEntryToFirebase(entry.question, answer, true);
         captureCurrentPage();
         savePagesToStorage();
         statusEl.textContent = '✓ Answered secondary device\'s question';
@@ -1528,7 +1561,8 @@ function listenRemoteActions() {
 function connectSync() {
   connectFirebaseListener();
   listenPendingQuestions();
-  listenLiveDraw();
+  // listenLiveDraw() intentionally not started — the primary should only
+  // ever surface the secondary's final answer, not its in-progress writing.
   listenRemoteActions();
   setSyncActive(!!getSessionId());
 }
@@ -2682,6 +2716,28 @@ function savePagesAsPdf() {
 }
 
 savePdfBtn.addEventListener('click', savePagesAsPdf);
+
+// ---- Native browser print (e.g. mobile Share sheet > Print) ----
+// Unlike the "Save PDF" button above (which prints a dedicated blank
+// iframe), the OS share-sheet Print action prints THIS page directly. The
+// @media print rules hide the whole app and reveal only #printPagesContainer,
+// so here we fill that container with the same page snapshots right before
+// the print dialog renders, and clear it again afterwards.
+const printPagesContainerEl = document.getElementById('printPagesContainer');
+
+function populatePrintPages() {
+  captureCurrentPage(); // make sure the page you're on right now is included
+  savePagesToStorage();
+  const pagesWithContent = pages.filter(p => p.snapshot);
+  printPagesContainerEl.innerHTML = pagesWithContent
+    .map(p => `<div class="printPage"><img src="${p.snapshot}"></div>`)
+    .join('');
+}
+
+window.addEventListener('beforeprint', populatePrintPages);
+window.addEventListener('afterprint', () => {
+  printPagesContainerEl.innerHTML = '';
+});
 
 window.addEventListener('beforeunload', () => {
   captureCurrentPage();
