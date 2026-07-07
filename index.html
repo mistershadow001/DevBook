@@ -770,6 +770,18 @@ document.addEventListener('visibilitychange', () => {
     clearTimeout(pauseTimer);
     clearInterval(speakKeepAliveTimer);
     speechSynthesis.cancel();
+    // The phone locking or the app going to the background can suspend the
+    // audio session entirely without any event we can listen for. Force a
+    // fresh unlock next time speak() is needed after coming back.
+    ttsUnlocked = false;
+  } else if (deviceRole && getSessionId()) {
+    // Mobile browsers freeze or silently kill background network
+    // connections — including our EventSource sync streams — when the
+    // screen locks or you switch apps, with no error event fired. Without
+    // this, a Primary/Secondary pairing can go dead the moment either
+    // phone's screen locks, and nothing after that gets answered. Force a
+    // full reconnect every time the page becomes visible again.
+    connectSync();
   }
 });
 
@@ -1034,7 +1046,12 @@ function unlockTts() {
   }
 }
 ['pointerdown', 'touchstart', 'click'].forEach(evt => {
-  document.addEventListener(evt, unlockTts, { once: true, passive: true });
+  // Not { once: true } — the visibilitychange handler resets ttsUnlocked to
+  // false after the phone locks or the app backgrounds, so this needs to
+  // stay listening and be able to re-unlock on the next tap. When
+  // ttsUnlocked is already true this is a no-op (see the guard at the top
+  // of unlockTts), so leaving it attached costs nothing.
+  document.addEventListener(evt, unlockTts, { passive: true });
 });
 
 function speak(text) {
@@ -1580,7 +1597,15 @@ roleSecondaryBtn.addEventListener('click', () => {
   deviceRole = 'secondary';
   localStorage.setItem('aiNotebookRole', 'secondary');
   updateRoleUI();
-  statusEl.textContent = "Enter the Primary device's Session ID, then tap Connect Sync";
+  if (getSessionId()) {
+    // A Session ID is already filled in (e.g. switching back to Secondary,
+    // or it was typed before tapping this button) — connect right away
+    // instead of silently waiting on a separate tap of Connect Sync. This
+    // now matches what tapping Primary already does.
+    connectSync();
+  } else {
+    statusEl.textContent = "Enter the Primary device's Session ID, then tap Connect Sync";
+  }
 });
 
 // Remember the Session ID across reloads so a device doesn't have to be
@@ -2423,6 +2448,50 @@ let pages = [];
 let currentPageIndex = 0;
 const pageTabsEl = document.getElementById('pageTabs');
 
+// The on-screen "paper" look (cream background, blue rules, red margin) is
+// pure CSS on the div behind the canvas — the canvas itself is transparent.
+// JPEG has no transparency channel, so exporting the canvas straight to
+// image/jpeg flattens every transparent pixel to solid BLACK, which is why
+// saved pages and the printed PDF showed up as a black page with blue ink
+// instead of a notebook page. This draws the paper itself onto an offscreen
+// canvas first, then draws the ink on top of that, so what gets exported
+// actually looks like a real notebook page.
+function drawNotebookPaper(context, pixelWidth, pixelHeight) {
+  const dpr = window.devicePixelRatio || 1;
+  context.save();
+  context.fillStyle = '#fffdf7';
+  context.fillRect(0, 0, pixelWidth, pixelHeight);
+
+  const lineSpacing = 32 * dpr;
+  context.strokeStyle = 'rgba(60,110,190,0.4)';
+  context.lineWidth = Math.max(1, 1 * dpr);
+  for (let y = lineSpacing; y < pixelHeight; y += lineSpacing) {
+    context.beginPath();
+    context.moveTo(0, y + 0.5);
+    context.lineTo(pixelWidth, y + 0.5);
+    context.stroke();
+  }
+
+  const marginX = 46.5 * dpr;
+  context.strokeStyle = 'rgba(220,90,90,0.5)';
+  context.lineWidth = Math.max(1, 1 * dpr);
+  context.beginPath();
+  context.moveTo(marginX, 0);
+  context.lineTo(marginX, pixelHeight);
+  context.stroke();
+  context.restore();
+}
+
+function getNotebookPageSnapshot() {
+  const tmp = document.createElement('canvas');
+  tmp.width = canvas.width;
+  tmp.height = canvas.height;
+  const tctx = tmp.getContext('2d');
+  drawNotebookPaper(tctx, tmp.width, tmp.height);
+  tctx.drawImage(canvas, 0, 0, tmp.width, tmp.height);
+  return tmp.toDataURL('image/jpeg', 0.85);
+}
+
 function newPageObj() { return { strokes: [], snapshot: null, inkY: 40 }; }
 
 function loadPagesFromStorage() {
@@ -2458,7 +2527,7 @@ function captureCurrentPage() {
   pages[currentPageIndex].strokes = strokes;
   pages[currentPageIndex].inkY = inkY;
   try {
-    pages[currentPageIndex].snapshot = canvasHasContent ? canvas.toDataURL('image/jpeg', 0.82) : null;
+    pages[currentPageIndex].snapshot = canvasHasContent ? getNotebookPageSnapshot() : null;
   } catch (err) {
     pages[currentPageIndex].snapshot = null;
   }
