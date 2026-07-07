@@ -183,6 +183,19 @@
     cursor: pointer;
     min-height: 40px;
   }
+  #disconnectSyncBtn {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #d9534f;
+    background: #fdecea;
+    color: #b3261e;
+    cursor: pointer;
+    min-height: 40px;
+    font-size: 13px;
+  }
   #roleBtns { display: flex; gap: 8px; margin-top: 4px; }
   #roleBtns button {
     flex: 1;
@@ -527,6 +540,7 @@
       <button id="recognizeBtn">✍ Recognize now</button>
       <button id="saveNoteBtn">📝 Save as text</button>
       <button id="saveDrawingBtn">🖼 Save as drawing</button>
+      <button id="savePdfBtn">🖨 Save pages as PDF</button>
     </div>
 
     <label class="drawerCheck"><input type="checkbox" id="speakToggle" checked> Speak answers aloud</label>
@@ -542,10 +556,11 @@
       </div>
       <div id="roleStatus">Choose a role to enable cross-device sync.</div>
 
-      <label>Session ID (use the same one on other devices to sync)</label>
+      <label>Session ID (use the same one on other devices to sync — editable on either device)</label>
       <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
       <button id="connectSyncBtn">Connect Sync</button>
-      <div class="note">Primary generates the Session ID and answers every question. Secondary enters that same ID — its questions and drawings are sent to the Primary device, which does all the thinking and answers once. Leave both blank to work fully offline on this device.</div>
+      <button id="disconnectSyncBtn" style="display:none;">🔌 Disconnect</button>
+      <div class="note">Primary generates the Session ID (you can still edit it) and answers every question — it shows and speaks every answer, exactly like using this device alone. Secondary enters that same ID — it's used only to take input (handwriting/typing); its questions and drawings are sent to the Primary, which does all the thinking, drawing, and speaking. Leave both blank to work fully offline on this device.</div>
     </div>
   </div>
 </div>
@@ -753,6 +768,7 @@ canvas.addEventListener('pointerleave', endStroke);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     clearTimeout(pauseTimer);
+    clearInterval(speakKeepAliveTimer);
     speechSynthesis.cancel();
   }
 });
@@ -982,12 +998,74 @@ async function askGroq(question) {
 }
 
 // ---- TTS ----
+// Mobile browsers (iOS Safari, Android Chrome) are strict about audio:
+// speechSynthesis.speak() is only allowed to actually make sound once it's
+// been "unlocked" by a real user gesture (tap/click) on that page load, and
+// Android Chrome also has a long-standing bug where it silently pauses any
+// utterance after ~15s unless you keep nudging it. None of that is an issue
+// on a laptop, which is why this used to work there but stayed silent on
+// phones. Both are worked around below so speak() behaves the same on every
+// device.
+let ttsUnlocked = false;
+let ttsVoices = [];
+let speakKeepAliveTimer = null;
+
+function loadTtsVoices() {
+  if ('speechSynthesis' in window) ttsVoices = speechSynthesis.getVoices();
+}
+if ('speechSynthesis' in window) {
+  loadTtsVoices();
+  speechSynthesis.onvoiceschanged = loadTtsVoices;
+}
+
+function unlockTts() {
+  if (ttsUnlocked || !('speechSynthesis' in window)) return;
+  ttsUnlocked = true;
+  try {
+    // A near-silent, near-instant utterance spoken directly inside the
+    // user's first tap — this is what "unlocks" the audio session so later
+    // speak() calls (which happen after async network calls, well outside
+    // the original tap) are still allowed to play.
+    const unlock = new SpeechSynthesisUtterance(' ');
+    unlock.volume = 0;
+    speechSynthesis.speak(unlock);
+  } catch (err) {
+    console.warn('TTS unlock failed:', err);
+  }
+}
+['pointerdown', 'touchstart', 'click'].forEach(evt => {
+  document.addEventListener(evt, unlockTts, { once: true, passive: true });
+});
+
 function speak(text) {
   if (!document.getElementById('speakToggle').checked) return;
+  if (!('speechSynthesis' in window)) {
+    console.warn('speechSynthesis not supported on this device');
+    return;
+  }
+  clearInterval(speakKeepAliveTimer);
+  speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.rate = 1.0;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utter);
+  const voices = ttsVoices.length ? ttsVoices : speechSynthesis.getVoices();
+  const preferredVoice = voices.find(v => v.lang && v.lang.startsWith('en')) || voices[0];
+  if (preferredVoice) utter.voice = preferredVoice;
+
+  utter.onend = () => clearInterval(speakKeepAliveTimer);
+  utter.onerror = () => clearInterval(speakKeepAliveTimer);
+
+  // A tiny delay after cancel() avoids a common Android Chrome glitch where
+  // speak() called immediately after cancel() gets silently dropped.
+  setTimeout(() => {
+    speechSynthesis.speak(utter);
+    // Android Chrome bug workaround: long utterances get auto-paused
+    // around 15s in unless resumed periodically.
+    speakKeepAliveTimer = setInterval(() => {
+      if (!speechSynthesis.speaking) { clearInterval(speakKeepAliveTimer); return; }
+      speechSynthesis.pause();
+      speechSynthesis.resume();
+    }, 10000);
+  }, 50);
 }
 
 // ---- Render answer in handwriting-style font directly on the canvas ----
@@ -1177,6 +1255,7 @@ if (!deviceId) {
 
 // 'primary' | 'secondary' | '' (undecided / plain single-device use)
 let deviceRole = localStorage.getItem('aiNotebookRole') || '';
+let syncActive = false; // true once any sync channel is actually connected
 
 function getSessionId() {
   return document.getElementById('sessionId').value.trim();
@@ -1192,17 +1271,25 @@ async function pushEntryToFirebase(question, answer) {
     console.log('No session ID set — skipping Firebase push');
     return;
   }
+  // Use a client-generated id and PUT (instead of POST + waiting for the
+  // server to hand back an id) so we can mark this entry "seen" the instant
+  // BEFORE it goes out on the wire. With the old POST approach there was a
+  // race: our own EventSource listener could deliver the "put" notification
+  // for this brand-new entry before the POST's own response (and therefore
+  // seenEntryIds.add) had come back, which made the device that just
+  // answered a question re-render (and on some timings, re-speak) its own
+  // answer a second time. Marking it seen synchronously, before the
+  // network call even starts, closes that race entirely — every question
+  // gets answered exactly once, on exactly one device.
+  const localId = 'local-' + deviceId + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  seenEntryIds.add(localId);
   try {
-    const res = await fetch(`${FIREBASE_URL}/sessions/${sessionId}/entries.json`, {
-      method: 'POST',
+    const res = await fetch(`${FIREBASE_URL}/sessions/${sessionId}/entries/${localId}.json`, {
+      method: 'PUT',
       body: JSON.stringify({ question, answer, t: Date.now() })
     });
     console.log('Firebase push response status:', res.status);
-    if (res.ok) {
-      const data = await res.json();
-      console.log('Firebase push succeeded, entry id:', data.name);
-      seenEntryIds.add(data.name); // mark our own entry as already-seen so we don't re-render it
-    } else {
+    if (!res.ok) {
       console.error('Firebase push failed with status', res.status, await res.text());
     }
   } catch (err) {
@@ -1234,21 +1321,29 @@ function connectFirebaseListener() {
       // Initial full snapshot on connect: this can be an entire history of
       // past questions/answers. Replaying all of that straight onto the
       // current page used to dump a pile of old ink onto the notebook the
-      // instant you connected — mark it all as "seen" instead, and just
-      // surface the most recent one in the answer card for context.
+      // instant you connected — mark it all as "seen" instead. Outputs only
+      // ever belong on the Primary device, so a Secondary doesn't even
+      // surface the latest Q/A here — it stays purely an input device.
       const entries = Object.entries(payload.data);
       entries.forEach(([id]) => seenEntryIds.add(id));
-      const latest = entries.sort((a, b) => (a[1].t || 0) - (b[1].t || 0)).pop();
-      if (latest) {
-        lastQ.textContent = 'Q (synced): ' + latest[1].question;
-        lastA.textContent = latest[1].answer;
+      if (deviceRole !== 'secondary') {
+        const latest = entries.sort((a, b) => (a[1].t || 0) - (b[1].t || 0)).pop();
+        if (latest) {
+          lastQ.textContent = 'Q (synced): ' + latest[1].question;
+          lastA.textContent = latest[1].answer;
+        }
       }
     } else {
       // Incremental update: path is like "/-NxAbc123", data is the entry itself
       const id = payload.path.slice(1);
       if (!seenEntryIds.has(id)) {
         seenEntryIds.add(id);
-        renderRemoteEntry(payload.data);
+        // A Secondary device only takes input — it never shows or speaks
+        // answers itself. All output (text, drawing, and voice) happens on
+        // the Primary only, exactly like normal single-device use.
+        if (deviceRole !== 'secondary') {
+          renderRemoteEntry(payload.data);
+        }
       }
     }
   });
@@ -1418,7 +1513,32 @@ function connectSync() {
   listenPendingQuestions();
   listenLiveDraw();
   listenRemoteActions();
+  setSyncActive(!!getSessionId());
 }
+
+// ---- Disconnect: drop out of the paired session and go back to plain,
+// offline, single-device use without losing your role/Session ID choice ----
+const disconnectSyncBtn = document.getElementById('disconnectSyncBtn');
+
+function setSyncActive(active) {
+  syncActive = active;
+  disconnectSyncBtn.style.display = active ? '' : 'none';
+}
+
+function disconnectSync() {
+  if (firebaseListener) { firebaseListener.close(); firebaseListener = null; }
+  if (pendingQuestionsListener) { pendingQuestionsListener.close(); pendingQuestionsListener = null; }
+  if (liveDrawListener) { liveDrawListener.close(); liveDrawListener = null; }
+  if (remoteActionsListener) { remoteActionsListener.close(); remoteActionsListener = null; }
+  setSyncActive(false);
+  statusEl.textContent = 'Disconnected — working offline on this device only';
+  roleStatusEl.textContent = 'Disconnected from sync. Edit the Session ID and tap Connect Sync any time to rejoin.';
+}
+
+disconnectSyncBtn.addEventListener('click', () => {
+  disconnectSync();
+  closeDrawer();
+});
 
 // ---- Device role: Primary generates + owns the Session ID and does all the
 // thinking; Secondary joins with that same ID and defers questions/answers
@@ -1431,15 +1551,16 @@ const sessionIdInput = document.getElementById('sessionId');
 function updateRoleUI() {
   rolePrimaryBtn.classList.toggle('active', deviceRole === 'primary');
   roleSecondaryBtn.classList.toggle('active', deviceRole === 'secondary');
+  // Session ID stays editable on BOTH roles — a Primary should be able to
+  // change its own code (e.g. to start a fresh session) and a Secondary
+  // obviously needs to type in whatever code the Primary is showing.
+  sessionIdInput.readOnly = false;
   if (deviceRole === 'primary') {
-    sessionIdInput.readOnly = true;
-    roleStatusEl.textContent = '📱 Primary device. Share this Session ID with your secondary device: ' + (getSessionId() || '(tap Primary again to generate one)');
+    roleStatusEl.textContent = '📱 Primary device. Share this Session ID with your secondary device (you can edit it any time — tap Connect Sync again after changing it): ' + (getSessionId() || '(tap Primary again to generate one)');
   } else if (deviceRole === 'secondary') {
-    sessionIdInput.readOnly = false;
     sessionIdInput.placeholder = "Enter the Primary device's Session ID";
-    roleStatusEl.textContent = "📲 Secondary device. Enter the Primary device's Session ID above, then tap Connect Sync. Your questions and drawings go to the Primary, which answers.";
+    roleStatusEl.textContent = "📲 Secondary device. Enter the Primary device's Session ID above, then tap Connect Sync. This device only sends your questions/drawings — the Primary shows and speaks every answer.";
   } else {
-    sessionIdInput.readOnly = false;
     roleStatusEl.textContent = 'Choose Primary or Secondary to enable cross-device sync.';
   }
 }
@@ -2430,6 +2551,68 @@ function renderPageTabs() {
   addTab.addEventListener('click', addNewPage);
   pageTabsEl.appendChild(addTab);
 }
+
+// ---- Save entire notebook as a PDF, using the browser's own print dialog ----
+// Every page's stored snapshot image becomes one printed page; the person
+// then picks "Save as PDF" (or "Microsoft Print to PDF" on Windows) from
+// the normal print dialog — no server, no library, works offline.
+let pdfPrintFrame = null;
+const savePdfBtn = document.getElementById('savePdfBtn');
+
+function savePagesAsPdf() {
+  captureCurrentPage(); // make sure the page you're on right now is included
+  savePagesToStorage();
+
+  const pagesWithContent = pages.filter(p => p.snapshot);
+  if (!pagesWithContent.length) {
+    statusEl.textContent = '⚠ No written pages yet — nothing to save';
+    return;
+  }
+
+  if (pdfPrintFrame && pdfPrintFrame.parentNode) {
+    pdfPrintFrame.parentNode.removeChild(pdfPrintFrame);
+  }
+  pdfPrintFrame = document.createElement('iframe');
+  pdfPrintFrame.style.position = 'fixed';
+  pdfPrintFrame.style.right = '0';
+  pdfPrintFrame.style.bottom = '0';
+  pdfPrintFrame.style.width = '0';
+  pdfPrintFrame.style.height = '0';
+  pdfPrintFrame.style.border = '0';
+  document.body.appendChild(pdfPrintFrame);
+
+  const imgsHtml = pagesWithContent
+    .map(p => `<div class="pdfPage"><img src="${p.snapshot}"></div>`)
+    .join('');
+
+  const doc = pdfPrintFrame.contentWindow.document;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><title>AI Notebook</title><style>
+    @page { margin: 0.3in; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .pdfPage { width: 100%; page-break-after: always; }
+    .pdfPage:last-child { page-break-after: auto; }
+    .pdfPage img { width: 100%; height: auto; display: block; }
+  </style></head><body>${imgsHtml}</body></html>`);
+  doc.close();
+
+  statusEl.textContent = '🖨 Opening print dialog — choose "Save as PDF"';
+  closeDrawer();
+
+  // Give the base64 images a beat to paint before invoking print.
+  setTimeout(() => {
+    try {
+      pdfPrintFrame.contentWindow.focus();
+      pdfPrintFrame.contentWindow.print();
+    } catch (err) {
+      console.error('Print-to-PDF failed:', err);
+      statusEl.textContent = '⚠ Could not open the print dialog';
+    }
+  }, 300);
+}
+
+savePdfBtn.addEventListener('click', savePagesAsPdf);
 
 window.addEventListener('beforeunload', () => {
   captureCurrentPage();
