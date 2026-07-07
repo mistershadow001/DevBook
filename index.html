@@ -22,42 +22,131 @@
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  header {
-    padding: 10px 16px;
+  /* ---- Notebook-feel chrome ---- */
+  #canvasWrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(90deg, transparent 0 46px, rgba(220,90,90,0.35) 46px 47px, transparent 47px 100%),
+      repeating-linear-gradient(to bottom, transparent 0 31px, rgba(60,110,190,0.18) 31px 32px);
+    background-color: #fffdf7;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    touch-action: none;
+  }
+
+  /* Transient status toast, replaces the old permanent header status line */
+  #status {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 60px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 950;
+    background: rgba(20,20,20,0.82);
+    color: #fff;
+    padding: 7px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    max-width: 82%;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  }
+  #status.show { opacity: 1; }
+
+  /* Gear button — the one door into every function */
+  #gearBtn {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 12px);
+    left: 12px;
+    z-index: 960;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     background: #fff;
-    border-bottom: 5px solid #ddd;
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    font-size: 20px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  header h1 {
-    font-size: 15px;
-    margin: 0;
-    font-weight: 600;
-  }
-  #status {
-    font-size: 12px;
-    color: #666;
-    min-height: 16px;
-  }
-  #settingsBtn {
-    font-size: 12px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    background: #fafafa;
+    justify-content: center;
     cursor: pointer;
   }
-  #settingsPanel {
+
+  /* Settings drawer holding every collapsible control */
+  #settingsDrawer {
     display: none;
-    padding: 12px 16px;
-    background: #fff9ee;
-    border-bottom: 1px solid #ddd;
-    font-size: 13px;
+    position: fixed;
+    inset: 0;
+    z-index: 970;
   }
-  #settingsPanel.open { display: block; }
+  #settingsDrawer.open { display: block; }
+  #settingsScrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+  }
+  #settingsPanelBox {
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%;
+    width: min(320px, 85vw);
+    background: #fff9ee;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.25);
+    padding: 16px;
+    padding-top: calc(16px + env(safe-area-inset-top));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform 0.25s ease;
+  }
+  #settingsDrawer.open #settingsPanelBox { transform: translateX(0); }
+  #settingsPanelBox h2 { margin: 0 0 14px; font-size: 16px; }
+  #closeDrawerBtn {
+    float: right;
+    border: none;
+    background: none;
+    font-size: 20px;
+    cursor: pointer;
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .drawerSection {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .drawerSection button {
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .drawerCheck {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  #settingsPanel {
+    font-size: 13px;
+    padding-top: 4px;
+    border-top: 1px solid #eadfc4;
+  }
   #settingsPanel label {
     display: block;
     margin-top: 8px;
@@ -85,60 +174,111 @@
   }
   #keysStatus.ok { color: #0a7a2f; background: #eafaf0; }
   #keysStatus.err { color: #b3261e; background: #fdecea; }
-  #canvasWrap {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-  }
-  canvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%;
-    height: 100%;
-    background: #fffdf7;
-    touch-action: none;
-  }
-  #answerBar {
-    padding: 12px 16px;
-    background: #fff;
-    border-top: 1px solid #ddd;
-    max-height: 30vh;
-    overflow-y: auto;
-    font-size: 14px;
-    line-height: 1.5;
-  }
-  #answerBar .q { color: #666; font-size: 12px; margin-bottom: 4px; }
-  #answerBar .a { white-space: pre-wrap; }
-  footer {
-    padding: 8px 16px;
-    background: #fff;
-    border-top: 1px solid #eee;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  footer button {
-    padding: 12px 16px;
-    border-radius: 8px;
+  #connectSyncBtn {
+    margin-top: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
     border: 1px solid #ccc;
-    background: #f0f0f0;
-    font-size: 14px;
+    background: #fafafa;
     cursor: pointer;
-    min-height: 44px; /* comfortable touch target */
+    min-height: 40px;
   }
-  footer .hint {
-    font-size: 11px;
-    color: #888;
-    margin-left: auto;
+
+  /* Answer card removed from view per request — lastQ/lastA stay in the DOM
+     since other code (context pill, badge) reads their text as state, but
+     nothing about this element shows on screen anymore. */
+  #answerBar { display: none; }
+
+  /* Page tabs — the notebook's dividers, always visible */
+  #pageTabs {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 850;
   }
-  #settingsBtn, #typeToggleBtn {
-    min-height: 36px;
+  .pageTab {
+    background: #ffd76b;
+    border: 1px solid #d9a900;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    padding: 10px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: -2px 2px 6px rgba(0,0,0,0.15);
+    min-width: 26px;
+    text-align: center;
+    color: #5a4300;
   }
+  .pageTab.active {
+    background: #1a56db;
+    color: #fff;
+    border-color: #1a56db;
+  }
+  .pageTab.addPageTab {
+    background: #eee;
+    color: #555;
+    font-weight: 700;
+  }
+
+  /* ---- Mode switch: Notes vs Ask, the two views of the notebook ---- */
+  #modeSwitch {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 12px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 955;
+    display: flex;
+    background: rgba(255,255,255,0.92);
+    border-radius: 999px;
+    padding: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    gap: 2px;
+  }
+  .modeBtn {
+    border: none;
+    background: transparent;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #555;
+  }
+  .modeBtn.active {
+    background: #1a56db;
+    color: #fff;
+  }
+  #canvasWrap.modeNotes { background-color: #fffaf0; }
+  #canvasWrap.modeAsk { background-color: #f5f8ff; }
+
+  .pageTab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pageTabDelete {
+    color: #b3261e;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .pageTab.addPageTab { justify-content: center; }
   #typeBar {
     display: none;
-    padding: 8px 16px;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 910;
+    padding: 8px;
     background: #fff;
-    border-top: 1px solid #eee;
+    border-radius: 20px;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.2);
     gap: 8px;
   }
   #typeBar.open { display: flex; }
@@ -158,10 +298,6 @@
     font-size: 14px;
     cursor: pointer;
     min-height: 44px;
-  }
-  @media (max-width: 480px) {
-    header h1 { font-size: 13px; }
-    #status { font-size: 11px; }
   }
 
   /* ---- Notes ---- */
@@ -249,9 +385,9 @@
   /* ---- Context Pill ---- */
   #contextPill {
     position: fixed;
-    right: 16px;
-    bottom: 90px;
-    z-index: 900;
+    top: calc(env(safe-area-inset-top) + 12px);
+    right: 12px;
+    z-index: 945;
     background: #1a56db;
     color: #fff;
     border-radius: 999px;
@@ -264,6 +400,8 @@
     cursor: grab;
     touch-action: none;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none; /* iOS: stops the long-press "Copy" callout from hijacking the drag */
     transition: transform 0.12s ease;
   }
   #contextPill.dragging {
@@ -346,27 +484,45 @@
 </head>
 <body>
 
-<header>
-  <h1>📓 AI Notebook — Prototype</h1>
-  <div id="status">Write your question, then finish with ?? and pause</div>
-  <button id="typeToggleBtn">⌨ Type</button>
-  <button id="notesBtn">🗒 Notes</button>
-  <button id="shelfBtn">📚 Shelf</button>
-  <button id="settingsBtn">⚙ Settings</button>
-  <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
-    <input type="checkbox" id="speakToggle" checked> Speak answers
-  </label>
-</header>
+<div id="status">Write your question, then finish with ?? and pause</div>
 
-<div id="settingsPanel">
-  <label>API Keys</label>
-  <div id="keysStatus">Loading keys from Firebase…</div>
-  <div class="note">Keys are fetched securely from Firebase and never hardcoded or stored in this page.</div>
-  <label>Session ID (use the same one on other devices to sync)</label>
-  <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
-  <button id="connectSyncBtn" style="margin-top:6px; padding:8px 12px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer; min-height:40px;">Connect Sync</button>
-  <div class="note">Leave blank to work offline (no sync).</div>
+<div id="modeSwitch">
+  <button id="modeAskBtn" class="modeBtn active">💬 Ask</button>
+  <button id="modeNotesBtn" class="modeBtn">📓 Notes</button>
 </div>
+
+<button id="gearBtn" title="Menu">⚙</button>
+
+<div id="settingsDrawer">
+  <div id="settingsScrim"></div>
+  <div id="settingsPanelBox">
+    <button id="closeDrawerBtn">✕</button>
+    <h2>📓 Notebook Menu</h2>
+
+    <div class="drawerSection">
+      <button id="typeToggleBtn">⌨ Type instead</button>
+      <button id="notesBtn">🗒 Notes</button>
+      <button id="shelfBtn">📚 Shelf</button>
+      <button id="clearBtn">🧹 Clear page</button>
+      <button id="recognizeBtn">✍ Recognize now</button>
+      <button id="saveNoteBtn">💾 Save note</button>
+    </div>
+
+    <label class="drawerCheck"><input type="checkbox" id="speakToggle" checked> Speak answers aloud</label>
+
+    <div id="settingsPanel">
+      <label>API Keys</label>
+      <div id="keysStatus">Loading keys from Firebase…</div>
+      <div class="note">Keys are fetched securely from Firebase and never hardcoded or stored in this page.</div>
+      <label>Session ID (use the same one on other devices to sync)</label>
+      <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
+      <button id="connectSyncBtn">Connect Sync</button>
+      <div class="note">Leave blank to work offline (no sync). Pages are also saved on this device automatically.</div>
+    </div>
+  </div>
+</div>
+
+<div id="pageTabs"></div>
 
 <div id="canvasWrap">
   <canvas id="board"></canvas>
@@ -435,15 +591,8 @@
 
 <div id="answerBar">
   <div class="q" id="lastQ"></div>
-  <div class="a" id="lastA">Answers will appear here, and be spoken aloud.</div>
+  <div class="a" id="lastA">Write your question, finish with ?? and pause — the answer shows up here.</div>
 </div>
-
-<footer>
-  <button id="clearBtn">Clear page</button>
-  <button id="recognizeBtn">Recognize now</button>
-  <button id="saveNoteBtn">💾 Save note</button>
-  <span class="hint">V1 trigger: finish a question with ?? then pause ~1.5s</span>
-</footer>
 
 <script>
 const canvas = document.getElementById('board');
@@ -452,18 +601,54 @@ const statusEl = document.getElementById('status');
 const lastQ = document.getElementById('lastQ');
 const lastA = document.getElementById('lastA');
 
+// Status is a transient toast now (keeps the opening screen looking like a
+// blank notebook rather than a permanent header bar). Every existing call
+// site just does statusEl.textContent = '...', so watch for that and
+// show/fade automatically without touching all those call sites.
+let statusFadeTimer = null;
+new MutationObserver(() => {
+  statusEl.classList.add('show');
+  clearTimeout(statusFadeTimer);
+  statusFadeTimer = setTimeout(() => statusEl.classList.remove('show'), 3200);
+}).observe(statusEl, { childList: true, characterData: true, subtree: true });
+
 function resizeCanvas() {
   const rect = canvas.parentElement.getBoundingClientRect();
-  const prev = canvas.toDataURL ? null : null;
+  if (rect.width === 0 || rect.height === 0) return; // parent temporarily hidden/collapsed
+
+  // Preserve whatever is currently drawn, since the pixel buffer is about to be reset
+  let snapshot = null;
+  if (canvas.width > 0 && canvas.height > 0) {
+    try { snapshot = canvas.toDataURL(); } catch (e) { snapshot = null; }
+  }
+
   canvas.width = rect.width * devicePixelRatio;
   canvas.height = rect.height * devicePixelRatio;
   ctx.scale(devicePixelRatio, devicePixelRatio);
   ctx.lineWidth = 2.5;
   ctx.lineCap = 'round';
   ctx.strokeStyle = '#1a1a1a';
+
+  if (snapshot) {
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+    img.src = snapshot;
+  }
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
+
+// The canvas's on-screen size also changes any time the layout around it does
+// (opening Settings, connecting Sync, toggling the Type bar, the mobile
+// keyboard appearing, etc). Those don't fire a window 'resize' event, so the
+// canvas's internal pixel buffer used to fall out of sync with its displayed
+// size — touches would land in the wrong place, making it feel impossible to
+// write right after doing any of those things. ResizeObserver catches all of
+// these cases directly on the element that actually changes size.
+if (window.ResizeObserver) {
+  new ResizeObserver(() => resizeCanvas()).observe(canvas.parentElement);
+}
 
 // ---- Stroke capture ----
 let strokes = [];       // finished strokes: [{x:[],y:[],t:[]}]
@@ -471,6 +656,19 @@ let currentStroke = null;
 let drawing = false;
 let pauseTimer = null;
 const PAUSE_MS = 1400;
+
+// Whether the visible canvas has anything on it right now. This is
+// intentionally separate from `strokes`, because `strokes` gets emptied
+// after every answered question (so the next "??" doesn't resend old ink),
+// even though the page still visibly has writing + the answer on it.
+// Save Note and the Context Pill used to check strokes.length directly,
+// which made Save Note silently do nothing right after getting an answer.
+let canvasHasContent = false;
+
+// Two views of the same notebook: 'ask' auto-recognizes handwriting and
+// answers questions; 'notes' is free drawing/writing with no auto-trigger,
+// meant for keeping real notes and diagrams.
+let mode = 'ask';
 
 function pointerPos(e) {
   const rect = canvas.getBoundingClientRect();
@@ -507,10 +705,13 @@ function endStroke() {
       currentStroke.t.push(currentStroke.t[0] + 1);
     }
     strokes.push(currentStroke);
+    canvasHasContent = true;
   }
   currentStroke = null;
   clearTimeout(pauseTimer);
-  pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
+  if (mode === 'ask') pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
+  captureCurrentPage();
+  savePagesToStorage();
 }
 canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointerleave', endStroke);
@@ -524,26 +725,67 @@ document.addEventListener('visibilitychange', () => {
 
 document.getElementById('clearBtn').addEventListener('click', () => {
   strokes = [];
+  canvasHasContent = false;
+  inkY = 40;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   statusEl.textContent = 'Cleared. Write your question, then finish with ?? and pause';
   refreshPillBadge();
+  captureCurrentPage();
+  savePagesToStorage();
+  closeDrawer();
 });
 
-document.getElementById('recognizeBtn').addEventListener('click', () => {
+const recognizeBtn = document.getElementById('recognizeBtn');
+recognizeBtn.addEventListener('click', () => {
   clearTimeout(pauseTimer);
   runPipeline();
 });
 
 // Auto-trigger check: recognize after pause, then look for ?? or .. in the text
 async function checkTrigger() {
+  if (mode !== 'ask') return;
   if (strokes.length === 0) return;
   await runPipeline();
 }
 
-// ---- Settings ----
-const settingsBtn = document.getElementById('settingsBtn');
-const settingsPanel = document.getElementById('settingsPanel');
-settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('open'));
+// ---- Settings drawer: the one door into every collapsible control ----
+const gearBtn = document.getElementById('gearBtn');
+const settingsDrawer = document.getElementById('settingsDrawer');
+const settingsScrim = document.getElementById('settingsScrim');
+const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+
+function openDrawer() { settingsDrawer.classList.add('open'); }
+function closeDrawer() { settingsDrawer.classList.remove('open'); }
+
+gearBtn.addEventListener('click', openDrawer);
+closeDrawerBtn.addEventListener('click', closeDrawer);
+settingsScrim.addEventListener('click', closeDrawer);
+
+// ---- Mode switch: Ask (auto Q&A) vs Notes (free writing/drawing) ----
+const modeAskBtn = document.getElementById('modeAskBtn');
+const modeNotesBtn = document.getElementById('modeNotesBtn');
+const canvasWrapEl = document.getElementById('canvasWrap');
+
+function setMode(newMode) {
+  mode = newMode;
+  modeAskBtn.classList.toggle('active', mode === 'ask');
+  modeNotesBtn.classList.toggle('active', mode === 'notes');
+  canvasWrapEl.classList.toggle('modeAsk', mode === 'ask');
+  canvasWrapEl.classList.toggle('modeNotes', mode === 'notes');
+  // Handwriting Q&A controls only make sense in Ask mode
+  typeToggleBtn.style.display = mode === 'ask' ? '' : 'none';
+  recognizeBtn.style.display = mode === 'ask' ? '' : 'none';
+  if (mode === 'notes') {
+    typeBar.classList.remove('open');
+    clearTimeout(pauseTimer);
+    statusEl.textContent = 'Notes mode — write or draw freely, tap 💾 Save note when done';
+  } else {
+    statusEl.textContent = 'Ask mode — write a question, finish with ?? and pause';
+  }
+}
+
+modeAskBtn.addEventListener('click', () => setMode('ask'));
+modeNotesBtn.addEventListener('click', () => setMode('notes'));
 
 // ---- API keys: fetched from Firebase, never hardcoded ----
 let liveKeys = { msApp: '', msHmac: '', groq: '' };
@@ -695,6 +937,7 @@ function speak(text) {
 let inkY = 40; // tracks vertical position for next handwritten answer
 
 function writeAnswerOnCanvas(text) {
+  canvasHasContent = true;
   const rect = canvas.parentElement.getBoundingClientRect();
   const fontSize = 26;
   const lineHeight = fontSize * 1.3;
@@ -724,6 +967,140 @@ function writeAnswerOnCanvas(text) {
   }
   if (line) ctx.fillText(line, 30, y);
   inkY = y + lineHeight;
+}
+
+// Makes a bounding box of written strokes visually dissolve — "ink fading
+// in air" — by covering it with a snapshot image of just that region, then
+// CSS-transitioning that image away, while the real canvas underneath is
+// cleared immediately. onDone fires once the fade finishes.
+function fadeOutStrokesGhost(strokesToFade, onDone) {
+  if (!strokesToFade || strokesToFade.length === 0) { onDone && onDone(); return; }
+  const rect = canvas.parentElement.getBoundingClientRect();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  strokesToFade.forEach(s => {
+    for (let i = 0; i < s.x.length; i++) {
+      if (s.x[i] < minX) minX = s.x[i];
+      if (s.x[i] > maxX) maxX = s.x[i];
+      if (s.y[i] < minY) minY = s.y[i];
+      if (s.y[i] > maxY) maxY = s.y[i];
+    }
+  });
+  if (!isFinite(minX)) { onDone && onDone(); return; }
+  const pad = 18;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(rect.width, maxX + pad);
+  maxY = Math.min(rect.height, maxY + pad);
+  const w = Math.max(1, maxX - minX), h = Math.max(1, maxY - minY);
+
+  const dpr = window.devicePixelRatio || 1;
+  let ghostSrc = null;
+  try {
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.round(w * dpr);
+    tmp.height = Math.round(h * dpr);
+    tmp.getContext('2d').drawImage(
+      canvas,
+      Math.round(minX * dpr), Math.round(minY * dpr), Math.round(w * dpr), Math.round(h * dpr),
+      0, 0, tmp.width, tmp.height
+    );
+    ghostSrc = tmp.toDataURL();
+  } catch (err) {
+    console.warn('Ink-fade snapshot failed, skipping animation:', err);
+  }
+
+  // Erase the real ink immediately — the ghost image on top is what fades
+  ctx.clearRect(minX, minY, w, h);
+
+  if (!ghostSrc) { onDone && onDone(); return; }
+
+  const ghost = document.createElement('img');
+  ghost.src = ghostSrc;
+  ghost.style.position = 'absolute';
+  ghost.style.left = minX + 'px';
+  ghost.style.top = minY + 'px';
+  ghost.style.width = w + 'px';
+  ghost.style.height = h + 'px';
+  ghost.style.pointerEvents = 'none';
+  ghost.style.zIndex = 5;
+  ghost.style.opacity = '1';
+  ghost.style.filter = 'blur(0px)';
+  ghost.style.transform = 'translateY(0px) scale(1)';
+  ghost.style.transition = 'opacity 750ms ease, filter 750ms ease, transform 750ms ease';
+  canvas.parentElement.appendChild(ghost);
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      ghost.style.opacity = '0';
+      ghost.style.filter = 'blur(4px)';
+      ghost.style.transform = 'translateY(-10px) scale(1.05)';
+    });
+  });
+
+  let finished = false;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    ghost.remove();
+    onDone && onDone();
+  }
+  ghost.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 900); // safety net if transitionend doesn't fire
+}
+
+// Reveals the answer progressively, like it's being written in real time,
+// instead of appearing instantly.
+function animateAnswerOnCanvas(text, onDone) {
+  canvasHasContent = true;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const fontSize = 26;
+  const lineHeight = fontSize * 1.3;
+  const maxWidth = rect.width - 60;
+
+  ctx.font = fontSize + "px 'Caveat', cursive";
+  ctx.fillStyle = '#1a56db';
+  ctx.textBaseline = 'top';
+
+  let lowestY = inkY;
+  strokes.forEach(s => { s.y.forEach(y => { if (y > lowestY) lowestY = y; }); });
+  const startY = lowestY + 30;
+
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const test = line + word + ' ';
+    if (ctx.measureText(test).width > maxWidth && line !== '') {
+      lines.push(line.trim());
+      line = word + ' ';
+    } else {
+      line = test;
+    }
+  }
+  if (line.trim()) lines.push(line.trim());
+  if (lines.length === 0) { onDone && onDone(); return; }
+
+  let li = 0, ci = 0;
+  const charsPerTick = 2;
+  const tickMs = 26;
+
+  function tick() {
+    ctx.font = fontSize + "px 'Caveat', cursive";
+    ctx.fillStyle = '#1a56db';
+    ctx.textBaseline = 'top';
+    if (li >= lines.length) {
+      inkY = startY + lines.length * lineHeight + lineHeight;
+      onDone && onDone();
+      return;
+    }
+    const currentLine = lines[li];
+    ci = Math.min(ci + charsPerTick, currentLine.length);
+    const y = startY + li * lineHeight;
+    ctx.fillText(currentLine.slice(0, ci), 30, y);
+    if (ci >= currentLine.length) { li++; ci = 0; }
+    setTimeout(tick, tickMs);
+  }
+  tick();
 }
 
 // ---- Firebase sync (cross-device) ----
@@ -780,13 +1157,18 @@ function connectFirebaseListener() {
     if (!payload.data) return;
 
     if (payload.path === '/') {
-      // Initial full snapshot: data is an object of {pushId: entry, ...}
-      Object.entries(payload.data).forEach(([id, entry]) => {
-        if (!seenEntryIds.has(id)) {
-          seenEntryIds.add(id);
-          renderRemoteEntry(entry);
-        }
-      });
+      // Initial full snapshot on connect: this can be an entire history of
+      // past questions/answers. Replaying all of that straight onto the
+      // current page used to dump a pile of old ink onto the notebook the
+      // instant you connected — mark it all as "seen" instead, and just
+      // surface the most recent one in the answer card for context.
+      const entries = Object.entries(payload.data);
+      entries.forEach(([id]) => seenEntryIds.add(id));
+      const latest = entries.sort((a, b) => (a[1].t || 0) - (b[1].t || 0)).pop();
+      if (latest) {
+        lastQ.textContent = 'Q (synced): ' + latest[1].question;
+        lastA.textContent = latest[1].answer;
+      }
     } else {
       // Incremental update: path is like "/-NxAbc123", data is the entry itself
       const id = payload.path.slice(1);
@@ -813,11 +1195,18 @@ function renderRemoteEntry(entry) {
   if (!entry || !entry.answer) return;
   lastQ.textContent = 'Q (synced): ' + entry.question;
   lastA.textContent = entry.answer;
-  writeAnswerOnCanvas(entry.answer);
-  refreshPillBadge();
+  statusEl.textContent = 'A synced answer is arriving…';
+  animateAnswerOnCanvas(entry.answer, () => {
+    captureCurrentPage();
+    savePagesToStorage();
+    refreshPillBadge();
+  });
 }
 
-document.getElementById('connectSyncBtn').addEventListener('click', connectFirebaseListener);
+document.getElementById('connectSyncBtn').addEventListener('click', () => {
+  connectFirebaseListener();
+  closeDrawer(); // hand the writing area back on mobile
+});
 document.getElementById('sessionId').addEventListener('change', connectFirebaseListener);
 
 // ---- Type-instead bar (mobile-friendly alternative to handwriting) ----
@@ -827,6 +1216,7 @@ const typeInput = document.getElementById('typeInput');
 const typeSendBtn = document.getElementById('typeSendBtn');
 
 typeToggleBtn.addEventListener('click', () => {
+  closeDrawer();
   typeBar.classList.toggle('open');
   if (typeBar.classList.contains('open')) typeInput.focus();
 });
@@ -839,10 +1229,13 @@ async function runTypedPipeline(question) {
     statusEl.textContent = 'Thinking…';
     const answer = await askGroq(question);
     lastA.textContent = answer;
-    writeAnswerOnCanvas(answer);
+    statusEl.textContent = 'Answering…';
+    await new Promise(resolve => animateAnswerOnCanvas(answer, resolve));
     statusEl.textContent = 'Speaking answer…';
     speak(answer);
     pushEntryToFirebase(question, answer);
+    captureCurrentPage();
+    savePagesToStorage();
     statusEl.textContent = 'Done — ask another question';
   } catch (err) {
     console.error(err);
@@ -933,12 +1326,11 @@ async function saveCurrentNote() {
     statusEl.textContent = '⚠ Set a Session ID in Settings first to save notes';
     return;
   }
-  if (strokes.length === 0) {
+  if (!canvasHasContent) {
     statusEl.textContent = '⚠ Nothing on the page to save yet';
     return;
   }
   statusEl.textContent = 'Saving note…';
-  const image = getCanvasSnapshot();
   let rawText = '';
   let cleanText = '';
   try {
@@ -947,12 +1339,26 @@ async function saveCurrentNote() {
   } catch (err) {
     console.warn('Note text conversion skipped (diagram-only save):', err.message);
   }
+  // If we got usable typed text back, save the note as clean typed text only —
+  // no need to keep the handwritten scrawl once it's been converted.
+  // If nothing was recognized (a drawing/diagram), fall back to keeping the
+  // canvas snapshot as-is so diagrams aren't lost.
+  const hasText = !!(cleanText || rawText).trim();
+  const image = hasText ? null : getCanvasSnapshot();
   const title = (cleanText || rawText || 'Untitled note').split('\n')[0].slice(0, 60);
   const note = { title, image, rawText, cleanText, t: Date.now() };
   try {
     const res = await fetch(`${path}.json`, { method: 'POST', body: JSON.stringify(note) });
     if (!res.ok) throw new Error('status ' + res.status);
-    statusEl.textContent = '✓ Note saved';
+    statusEl.textContent = '✓ Note saved — fresh blank page ready';
+    strokes = [];
+    canvasHasContent = false;
+    inkY = 40;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    refreshPillBadge();
+    captureCurrentPage();
+    savePagesToStorage();
+    closeDrawer();
   } catch (err) {
     console.error('Save note failed:', err);
     statusEl.textContent = '⚠ Failed to save note';
@@ -988,8 +1394,11 @@ function renderNotesList() {
     const preview = n.cleanText || n.rawText || '(diagram only, no text recognized)';
     const card = document.createElement('div');
     card.className = 'noteCard';
-    const img = document.createElement('img');
-    img.src = n.image;
+    if (n.image) {
+      const img = document.createElement('img');
+      img.src = n.image;
+      card.appendChild(img);
+    }
     const meta = document.createElement('div');
     meta.className = 'meta';
     meta.innerHTML = `
@@ -999,7 +1408,6 @@ function renderNotesList() {
     meta.querySelector('.title').textContent = n.title || 'Untitled note';
     meta.querySelector('.preview').textContent = preview;
     meta.querySelector('.time').textContent = new Date(n.t).toLocaleString();
-    card.appendChild(img);
     card.appendChild(meta);
     card.addEventListener('click', () => openNoteDetail(id));
     notesListContent.appendChild(card);
@@ -1011,7 +1419,13 @@ function openNoteDetail(id) {
   if (!n) return;
   currentNoteId = id;
   noteDetailTitle.textContent = n.title || 'Untitled note';
-  noteDetailImg.src = n.image;
+  if (n.image) {
+    noteDetailImg.src = n.image;
+    noteDetailImg.style.display = '';
+  } else {
+    noteDetailImg.removeAttribute('src');
+    noteDetailImg.style.display = 'none';
+  }
   noteDetailText.textContent = n.cleanText || n.rawText || '(no typed text — diagram only)';
   notesListModal.classList.remove('open');
   noteDetailModal.classList.add('open');
@@ -1032,6 +1446,7 @@ deleteNoteBtn.addEventListener('click', async () => {
 });
 
 notesBtn.addEventListener('click', () => {
+  closeDrawer();
   notesListModal.classList.add('open');
   loadNotes();
 });
@@ -1076,7 +1491,7 @@ function shelfPath() {
 // Builds the "context" that gets dragged: last Q&A shown, plus the current
 // drawing (as-is) if there is one on the page right now.
 function getPillContext() {
-  const hasDrawing = strokes.length > 0;
+  const hasDrawing = canvasHasContent;
   const qText = lastQ.textContent || '';
   const aText = lastA.textContent || '';
   let text = [qText, aText].filter(Boolean).join('\n').trim();
@@ -1164,6 +1579,8 @@ async function handleDropToClaude() {
 // ---- Pill drag handling ----
 let pillDragging = false;
 let pillOffsetX = 0, pillOffsetY = 0;
+let pillStartX = 0, pillStartY = 0;
+const TAP_THRESHOLD_PX = 10; // movement below this counts as a tap, not a drag
 
 function zoneAtPoint(x, y) {
   for (const z of [dropShelf, dropClaude]) {
@@ -1175,9 +1592,9 @@ function zoneAtPoint(x, y) {
 
 function resetPillPosition() {
   contextPill.style.left = '';
-  contextPill.style.top = '';
-  contextPill.style.right = '16px';
-  contextPill.style.bottom = '90px';
+  contextPill.style.top = 'calc(env(safe-area-inset-top) + 12px)';
+  contextPill.style.right = '12px';
+  contextPill.style.bottom = '';
 }
 
 contextPill.addEventListener('pointerdown', (e) => {
@@ -1186,6 +1603,8 @@ contextPill.addEventListener('pointerdown', (e) => {
   const rect = contextPill.getBoundingClientRect();
   pillOffsetX = e.clientX - rect.left;
   pillOffsetY = e.clientY - rect.top;
+  pillStartX = e.clientX;
+  pillStartY = e.clientY;
   contextPill.classList.add('dragging');
   dropZones.classList.add('show');
 });
@@ -1204,13 +1623,27 @@ contextPill.addEventListener('pointermove', (e) => {
 async function finishPillDrag(e) {
   if (!pillDragging) return;
   pillDragging = false;
+  // Figure out which zone (if any) the pill was dropped on BEFORE hiding the
+  // drop zones — a display:none element has a zero-size bounding rect, so
+  // checking after hiding them always missed the drop.
+  const zone = zoneAtPoint(e.clientX, e.clientY);
   contextPill.classList.remove('dragging');
   dropZones.classList.remove('show');
-  const zone = zoneAtPoint(e.clientX, e.clientY);
   [dropShelf, dropClaude].forEach(z => z.classList.remove('hover'));
+  const movedDistance = Math.hypot(e.clientX - pillStartX, e.clientY - pillStartY);
   resetPillPosition();
-  if (zone === dropShelf) await handleDropToShelf();
-  else if (zone === dropClaude) await handleDropToClaude();
+
+  if (zone === dropShelf) {
+    await handleDropToShelf();
+  } else if (zone === dropClaude) {
+    await handleDropToClaude();
+  } else if (movedDistance < TAP_THRESHOLD_PX) {
+    // Plain tap/click, not a drag onto a zone — open the Shelf so the person
+    // gets clear feedback (including "set a Session ID" guidance) instead of
+    // the pill silently doing nothing, which looked like it was broken.
+    shelfListModal.classList.add('open');
+    loadShelf();
+  }
 }
 
 contextPill.addEventListener('pointerup', finishPillDrag);
@@ -1283,6 +1716,7 @@ function openShelfDetail(id) {
 }
 
 shelfBtn.addEventListener('click', () => {
+  closeDrawer();
   shelfListModal.classList.add('open');
   loadShelf();
 });
@@ -1381,9 +1815,152 @@ function extractTriggeredQuestion(recognizedText) {
 
 let processing = false;
 
-// Load keys as soon as everything above is defined
+// ---- Pages: flip through the notebook like a real one, kept on this device ----
+const PAGES_KEY = 'aiNotebookPages_v1';
+let pages = [];
+let currentPageIndex = 0;
+const pageTabsEl = document.getElementById('pageTabs');
+
+function newPageObj() { return { strokes: [], snapshot: null, inkY: 40 }; }
+
+function loadPagesFromStorage() {
+  try {
+    const raw = localStorage.getItem(PAGES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.pages) && parsed.pages.length) {
+        pages = parsed.pages;
+        currentPageIndex = Math.min(parsed.currentPageIndex || 0, pages.length - 1);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load saved pages:', err);
+  }
+  pages = [newPageObj()];
+  currentPageIndex = 0;
+}
+
+function savePagesToStorage() {
+  try {
+    localStorage.setItem(PAGES_KEY, JSON.stringify({ pages, currentPageIndex }));
+  } catch (err) {
+    console.warn('Failed to save pages (storage may be full):', err);
+  }
+}
+
+// Snapshot the current page's ink into the pages array (called before
+// switching away from it, and after anything changes the canvas).
+function captureCurrentPage() {
+  if (!pages[currentPageIndex]) return;
+  pages[currentPageIndex].strokes = strokes;
+  pages[currentPageIndex].inkY = inkY;
+  try {
+    pages[currentPageIndex].snapshot = canvasHasContent ? canvas.toDataURL('image/jpeg', 0.82) : null;
+  } catch (err) {
+    pages[currentPageIndex].snapshot = null;
+  }
+}
+
+// Redraw the canvas for the page at idx and make it the live page.
+function restorePage(idx) {
+  const p = pages[idx];
+  if (!p) return;
+  strokes = (p.strokes || []).slice();
+  inkY = p.inkY || 40;
+  clearTimeout(pauseTimer);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvasHasContent = strokes.length > 0 || !!p.snapshot;
+  if (p.snapshot) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+    img.src = p.snapshot;
+  }
+  lastQ.textContent = '';
+  lastA.textContent = 'Write your question, finish with ?? and pause — the answer shows up here.';
+  refreshPillBadge();
+  renderPageTabs();
+}
+
+function switchToPage(idx) {
+  if (idx === currentPageIndex || !pages[idx]) return;
+  captureCurrentPage();
+  currentPageIndex = idx;
+  restorePage(idx);
+  savePagesToStorage();
+}
+
+function addNewPage() {
+  captureCurrentPage();
+  pages.push(newPageObj());
+  currentPageIndex = pages.length - 1;
+  restorePage(currentPageIndex);
+  savePagesToStorage();
+}
+
+function deletePage(idx, evt) {
+  if (evt) evt.stopPropagation();
+  if (pages.length <= 1) {
+    statusEl.textContent = '⚠ Keep at least one page';
+    return;
+  }
+  const p = pages[idx];
+  const hasContent = (p.strokes && p.strokes.length > 0) || p.snapshot;
+  if (hasContent && !confirm('Delete this page? This cannot be undone.')) return;
+
+  pages.splice(idx, 1);
+  if (idx < currentPageIndex) {
+    currentPageIndex--;
+    renderPageTabs();
+  } else if (idx === currentPageIndex) {
+    if (currentPageIndex >= pages.length) currentPageIndex = pages.length - 1;
+    restorePage(currentPageIndex);
+  } else {
+    renderPageTabs();
+  }
+  savePagesToStorage();
+}
+
+function renderPageTabs() {
+  pageTabsEl.innerHTML = '';
+  pages.forEach((p, i) => {
+    const tab = document.createElement('div');
+    tab.className = 'pageTab' + (i === currentPageIndex ? ' active' : '');
+    tab.title = 'Page ' + (i + 1);
+    const num = document.createElement('span');
+    num.textContent = String(i + 1);
+    tab.appendChild(num);
+    if (pages.length > 1) {
+      const del = document.createElement('span');
+      del.className = 'pageTabDelete';
+      del.textContent = '×';
+      del.title = 'Delete page ' + (i + 1);
+      del.addEventListener('click', (e) => deletePage(i, e));
+      tab.appendChild(del);
+    }
+    tab.addEventListener('click', () => switchToPage(i));
+    pageTabsEl.appendChild(tab);
+  });
+  const addTab = document.createElement('div');
+  addTab.className = 'pageTab addPageTab';
+  addTab.textContent = '+';
+  addTab.title = 'New page';
+  addTab.addEventListener('click', addNewPage);
+  pageTabsEl.appendChild(addTab);
+}
+
+window.addEventListener('beforeunload', () => {
+  captureCurrentPage();
+  savePagesToStorage();
+});
+
+// Load keys and pages as soon as everything above is defined
 fetchKeysFromFirebase();
 refreshPillBadge();
+loadPagesFromStorage();
+restorePage(currentPageIndex);
+setMode('ask');
 
 async function runPipeline() {
   if (processing || strokes.length === 0) return;
@@ -1402,16 +1979,26 @@ async function runPipeline() {
     lastQ.textContent = 'Q: ' + question;
     statusEl.textContent = 'Thinking…';
 
+    const questionStrokes = strokes.slice(); // keep a reference before we clear the buffer
     const answer = await askGroq(question);
     lastA.textContent = answer;
-    writeAnswerOnCanvas(answer);
+
+    // "Ink fading in air": the question dissolves off the page…
+    statusEl.textContent = 'Answering…';
+    await new Promise(resolve => fadeOutStrokesGhost(questionStrokes, resolve));
+
+    // Reset the recognition buffer so the next trigger only sends new ink,
+    // not this question (and answer) again.
+    strokes = [];
+
+    // …then the answer writes itself in, like someone else is holding the pen.
+    await new Promise(resolve => animateAnswerOnCanvas(answer, resolve));
     statusEl.textContent = 'Speaking answer…';
     speak(answer);
     pushEntryToFirebase(question, answer);
 
-    // Reset the recognition buffer so the next trigger only sends new ink,
-    // not this question (and answer) again. The visible ink stays on the canvas.
-    strokes = [];
+    captureCurrentPage();
+    savePagesToStorage();
 
     statusEl.textContent = 'Done — keep writing your next question';
   } catch (err) {
