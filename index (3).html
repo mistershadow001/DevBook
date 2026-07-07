@@ -138,6 +138,7 @@
   <div class="note">Keys are kept only in this browser tab's memory for this session — not saved, not sent anywhere except directly to MyScript/Groq's own APIs.</div>
   <label>Session ID (use the same one on other devices to sync)</label>
   <input id="sessionId" type="text" placeholder="e.g. my-notebook-1">
+  <button id="connectSyncBtn" style="margin-top:6px; padding:6px 10px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer;">Connect Sync</button>
   <div class="note">Leave blank to work offline (no sync).</div>
 </div>
 
@@ -413,15 +414,22 @@ function getSessionId() {
 
 async function pushEntryToFirebase(question, answer) {
   const sessionId = getSessionId();
-  if (!sessionId) return; // sync disabled
+  if (!sessionId) {
+    console.log('No session ID set — skipping Firebase push');
+    return;
+  }
   try {
     const res = await fetch(`${FIREBASE_URL}/sessions/${sessionId}/entries.json`, {
       method: 'POST',
       body: JSON.stringify({ question, answer, t: Date.now() })
     });
+    console.log('Firebase push response status:', res.status);
     if (res.ok) {
       const data = await res.json();
+      console.log('Firebase push succeeded, entry id:', data.name);
       seenEntryIds.add(data.name); // mark our own entry as already-seen so we don't re-render it
+    } else {
+      console.error('Firebase push failed with status', res.status, await res.text());
     }
   } catch (err) {
     console.error('Firebase push failed:', err);
@@ -440,9 +448,11 @@ function connectFirebaseListener() {
   }
   seenEntryIds = new Set();
   const url = `${FIREBASE_URL}/sessions/${sessionId}/entries.json`;
+  console.log('Connecting Firebase listener to:', url);
   firebaseListener = new EventSource(url);
 
   firebaseListener.addEventListener('put', (e) => {
+    console.log('Firebase put event received:', e.data);
     const payload = JSON.parse(e.data);
     if (!payload.data) return;
 
@@ -464,7 +474,12 @@ function connectFirebaseListener() {
     }
   });
 
-  firebaseListener.onerror = () => {
+  firebaseListener.onopen = () => {
+    console.log('Firebase EventSource connection opened successfully');
+  };
+
+  firebaseListener.onerror = (err) => {
+    console.error('Firebase EventSource error:', err);
     statusEl.textContent = 'Sync connection issue — retrying…';
   };
 
@@ -478,6 +493,7 @@ function renderRemoteEntry(entry) {
   writeAnswerOnCanvas(entry.answer);
 }
 
+document.getElementById('connectSyncBtn').addEventListener('click', connectFirebaseListener);
 document.getElementById('sessionId').addEventListener('change', connectFirebaseListener);
 function extractTriggeredQuestion(recognizedText) {
   const triggers = ['??', '..'];
