@@ -50,6 +50,7 @@
     flex: 1;
     position: relative;
     overflow: hidden;
+    transform-origin: 50% 50%;
     background:
       linear-gradient(90deg, transparent 0 46px, rgba(220,90,90,0.35) 46px 47px, transparent 47px 100%),
       repeating-linear-gradient(to bottom, transparent 0 31px, rgba(60,110,190,0.18) 31px 32px);
@@ -62,6 +63,22 @@
     height: 100%;
     background: transparent;
     touch-action: none;
+  }
+  #zoomResetBtn {
+    display: none;
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 14px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 900;
+    background: rgba(20,20,20,0.82);
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
   }
 
   /* Transient status toast, replaces the old permanent header status line */
@@ -558,11 +575,15 @@
     <div class="drawerSection">
       <button id="typeToggleBtn">⌨ Type instead</button>
       <button id="notesBtn">🗒 Notes</button>
+      <button id="memoryBtn">🧠 Memory</button>
+      <button id="tasksBtn">✅ Tasks</button>
       <button id="shelfBtn">📚 Shelf</button>
+      <button id="undoBtn">↩ Undo last stroke</button>
       <button id="clearBtn">🧹 Clear page</button>
       <button id="recognizeBtn">✍ Recognize now</button>
       <button id="saveNoteBtn">📝 Save as text</button>
       <button id="saveDrawingBtn">🖼 Save as drawing</button>
+      <button id="exportPageBtn">📤 Export this page</button>
       <button id="savePdfBtn">🖨 Save pages as PDF</button>
     </div>
 
@@ -593,6 +614,7 @@
 <div id="canvasWrap">
   <canvas id="board"></canvas>
 </div>
+<button id="zoomResetBtn" title="Reset zoom">🔍 Reset zoom</button>
 
 <div id="typeBar">
   <input id="typeInput" type="text" placeholder="Type your question instead of writing…" enterkeyhint="send">
@@ -614,6 +636,28 @@
     <img id="noteDetailImg" class="noteDetailImg" alt="Saved note diagram">
     <div id="noteDetailText" class="noteDetailText"></div>
     <button class="noteDeleteBtn" id="deleteNoteBtn">🗑 Delete note</button>
+  </div>
+</div>
+
+<div id="memoryListModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeMemoryListBtn">✕</button>
+    <h2>🧠 Memory</h2>
+    <div class="note" style="margin-bottom:10px;">Facts you add here are always available to the AI — timetable, birthdays, tasks, anything. Just ask a question and it'll use them. You can also write "remember …" on the page instead of a question.</div>
+    <textarea id="memoryInput" rows="3" placeholder="e.g. Maths class every Monday 9am, or Riya's birthday is 20 July" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:6px; font-size:16px; font-family:inherit; resize:vertical;"></textarea>
+    <button id="addMemoryBtn" style="margin-top:8px; width:100%; padding:10px; border-radius:8px; border:1px solid #1a56db; background:#1a56db; color:#fff; cursor:pointer; min-height:40px; font-size:14px;">+ Remember this</button>
+    <div id="memoryListContent" style="margin-top:14px;"><div class="notesEmpty">No memory yet — add something above.</div></div>
+  </div>
+</div>
+
+<div id="tasksListModal" class="modalOverlay">
+  <div class="modalBox">
+    <button class="modalCloseBtn" id="closeTasksListBtn">✕</button>
+    <h2>✅ Tasks</h2>
+    <div class="note" style="margin-bottom:10px;">Track your to-dos here — the AI also knows your pending tasks when you ask it things. Tip: write "todo …" on the page instead of a question to add one quickly.</div>
+    <textarea id="taskInput" rows="2" placeholder="e.g. Submit Nottingham application form" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:6px; font-size:16px; font-family:inherit; resize:vertical;"></textarea>
+    <button id="addTaskBtn" style="margin-top:8px; width:100%; padding:10px; border-radius:8px; border:1px solid #0a7a2f; background:#0a7a2f; color:#fff; cursor:pointer; min-height:40px; font-size:14px;">+ Add task</button>
+    <div id="tasksListContent" style="margin-top:14px;"><div class="notesEmpty">No tasks yet.</div></div>
   </div>
 </div>
 
@@ -684,7 +728,13 @@ new MutationObserver(() => {
 }).observe(statusEl, { childList: true, characterData: true, subtree: true });
 
 function resizeCanvas() {
+  // If the page is currently pinch-zoomed, canvasWrap's own rect would
+  // reflect the scaled visual size rather than its true layout size —
+  // temporarily neutralize the transform while measuring.
+  const prevTransform = canvas.parentElement.style.transform;
+  if (prevTransform) canvas.parentElement.style.transform = 'none';
   const rect = canvas.parentElement.getBoundingClientRect();
+  if (prevTransform) canvas.parentElement.style.transform = prevTransform;
   if (rect.width === 0 || rect.height === 0) return; // parent temporarily hidden/collapsed
 
   // Preserve whatever is currently drawn, since the pixel buffer is about to be reset
@@ -748,11 +798,94 @@ let mode = 'ask';
 
 function pointerPos(e) {
   const rect = canvas.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top, t: Date.now() };
+  // Normalizing against the canvas's own logical size (rather than a raw
+  // clientX/rect subtraction) means this stays accurate even when the page
+  // is visually pinch-zoomed — rect reflects the current on-screen size,
+  // logicalWidth/Height stay fixed, so the ratio maps back to real ink coords.
+  const logicalWidth = canvas.width / devicePixelRatio;
+  const logicalHeight = canvas.height / devicePixelRatio;
+  const x = (e.clientX - rect.left) * (logicalWidth / rect.width);
+  const y = (e.clientY - rect.top) * (logicalHeight / rect.height);
+  return { x, y, t: Date.now() };
 }
 
+// ---- Pinch-to-zoom on the notebook page, with basic palm rejection ----
+// activeTouchPointers only ever holds touches that passed the palm-size
+// filter below, so a resting palm never counts toward "2 touches = pinch"
+// and never gets to interrupt an in-progress finger stroke.
+const canvasWrap = document.getElementById('canvasWrap');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+let activeTouchPointers = new Map(); // pointerId -> {x, y}
+let activePenDown = false;
+let pinchActive = false;
+let pinchStartDist = 0, pinchStartScale = 1;
+let pinchStartMid = { x: 0, y: 0 };
+let pinchStartPan = { x: 0, y: 0 };
+let zoomScale = 1, panX = 0, panY = 0;
+const MIN_ZOOM = 0.6, MAX_ZOOM = 3;
+// A fingertip's touch contact is typically ~10-20 CSS px across; a resting
+// palm is much broader. Where the browser reports contact geometry, this
+// screens out palm touches before they ever reach the drawing/pinch logic.
+const PALM_CONTACT_PX = 32;
+
+function applyZoomTransform() {
+  canvasWrap.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+  zoomResetBtn.style.display = (zoomScale !== 1 || panX !== 0 || panY !== 0) ? 'block' : 'none';
+}
+
+function resetZoom() {
+  zoomScale = 1; panX = 0; panY = 0;
+  canvasWrap.style.transition = 'transform 0.2s ease';
+  applyZoomTransform();
+  setTimeout(() => { canvasWrap.style.transition = ''; }, 220);
+}
+zoomResetBtn.addEventListener('click', resetZoom);
+
+function startPinch() {
+  pinchActive = true;
+  const pts = [...activeTouchPointers.values()];
+  pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+  pinchStartScale = zoomScale;
+  pinchStartMid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  pinchStartPan = { x: panX, y: panY };
+}
+
+function updatePinch() {
+  const pts = [...activeTouchPointers.values()];
+  if (pts.length < 2) return;
+  const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+  const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  zoomScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStartScale * (dist / pinchStartDist)));
+  panX = pinchStartPan.x + (mid.x - pinchStartMid.x);
+  panY = pinchStartPan.y + (mid.y - pinchStartMid.y);
+  applyZoomTransform();
+}
+
+let currentStrokePointerId = null;
+
 canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'pen') activePenDown = true;
+
+  if (e.pointerType === 'touch') {
+    const contact = Math.max(e.width || 0, e.height || 0);
+    if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
+    activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePenDown) return; // a real pen is writing — ignore touches (palm) while it is
+    if (activeTouchPointers.size >= 2) {
+      // Second finger down = pinch/pan gesture, not writing. Abandon
+      // whatever single-finger stroke was in progress (most likely it was
+      // an accidental touch anyway).
+      drawing = false;
+      currentStroke = null;
+      currentStrokePointerId = null;
+      clearTimeout(pauseTimer);
+      startPinch();
+      return;
+    }
+  }
+
   drawing = true;
+  currentStrokePointerId = e.pointerId;
   clearTimeout(pauseTimer);
   const p = pointerPos(e);
   currentStroke = { x: [p.x], y: [p.y], t: [p.t] };
@@ -761,7 +894,14 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  if (!drawing) return;
+  if (e.pointerType === 'touch' && activeTouchPointers.has(e.pointerId)) {
+    activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchActive && activeTouchPointers.size >= 2) {
+      updatePinch();
+      return;
+    }
+  }
+  if (!drawing || e.pointerId !== currentStrokePointerId) return;
   const p = pointerPos(e);
   currentStroke.x.push(p.x);
   currentStroke.y.push(p.y);
@@ -773,6 +913,7 @@ canvas.addEventListener('pointermove', (e) => {
 function endStroke() {
   if (!drawing) return;
   drawing = false;
+  currentStrokePointerId = null;
   if (currentStroke && currentStroke.x.length >= 1) {
     // Duplicate single-point strokes (quick taps/dots) so MyScript gets a valid 2-point stroke
     if (currentStroke.x.length === 1) {
@@ -793,8 +934,17 @@ function endStroke() {
   // ever show the final answer, not what's being written on the secondary.
   // pushLiveDrawIfSecondary();
 }
-canvas.addEventListener('pointerup', endStroke);
-canvas.addEventListener('pointerleave', endStroke);
+function releaseTouchOrPen(e) {
+  if (e.pointerType === 'touch') {
+    activeTouchPointers.delete(e.pointerId);
+    if (activeTouchPointers.size < 2) pinchActive = false;
+  } else if (e.pointerType === 'pen') {
+    activePenDown = false;
+  }
+}
+canvas.addEventListener('pointerup', (e) => { if (e.pointerId === currentStrokePointerId) endStroke(); releaseTouchOrPen(e); });
+canvas.addEventListener('pointerleave', (e) => { if (e.pointerId === currentStrokePointerId) endStroke(); releaseTouchOrPen(e); });
+canvas.addEventListener('pointercancel', (e) => { if (e.pointerId === currentStrokePointerId) endStroke(); releaseTouchOrPen(e); });
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
@@ -828,6 +978,78 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   savePagesToStorage();
   closeDrawer();
 });
+
+// ---- Undo: remove the last stroke and redraw everything before it ----
+// Strokes are drawn incrementally as you write, so "undoing" means clearing
+// the canvas and replaying every remaining stroke from scratch.
+function redrawStrokes() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  strokes.forEach(s => {
+    if (!s.x || s.x.length === 0) return;
+    ctx.beginPath();
+    ctx.moveTo(s.x[0], s.y[0]);
+    for (let i = 1; i < s.x.length; i++) ctx.lineTo(s.x[i], s.y[i]);
+    ctx.stroke();
+  });
+}
+
+function undoLastStroke() {
+  if (!strokes.length) {
+    statusEl.textContent = 'Nothing to undo on this page';
+    closeDrawer();
+    return;
+  }
+  strokes.pop();
+  redrawStrokes();
+  canvasHasContent = strokes.length > 0;
+  clearTimeout(pauseTimer);
+  captureCurrentPage();
+  savePagesToStorage();
+  refreshPillBadge();
+  statusEl.textContent = '↩ Last stroke undone';
+  closeDrawer();
+}
+document.getElementById('undoBtn').addEventListener('click', undoLastStroke);
+
+// ---- Export this page: share or download just the current page as an image ----
+async function exportCurrentPage() {
+  captureCurrentPage(); // make sure the snapshot reflects what's on screen right now
+  savePagesToStorage();
+  const snapshot = pages[currentPageIndex] && pages[currentPageIndex].snapshot;
+  if (!snapshot) {
+    statusEl.textContent = '⚠ Nothing on this page to export yet';
+    return;
+  }
+  const filename = `notebook-page-${currentPageIndex + 1}.jpg`;
+
+  // Prefer the native share sheet — lets you send it straight to WhatsApp,
+  // Drive, Files, etc. — and fall back to a plain download if unavailable.
+  if (navigator.share && navigator.canShare) {
+    try {
+      const blob = await (await fetch(snapshot)).blob();
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Notebook page' });
+        statusEl.textContent = '✓ Shared';
+        closeDrawer();
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') { closeDrawer(); return; } // user cancelled the share sheet
+      console.warn('Share failed, falling back to download:', err);
+    }
+  }
+
+  const a = document.createElement('a');
+  a.href = snapshot;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  statusEl.textContent = '✓ Page saved to your downloads';
+  closeDrawer();
+}
+document.getElementById('exportPageBtn').addEventListener('click', exportCurrentPage);
 
 const recognizeBtn = document.getElementById('recognizeBtn');
 recognizeBtn.addEventListener('click', () => {
@@ -1016,6 +1238,16 @@ async function askGroq(question) {
   const { groq } = getKeys();
   if (!groq) throw new Error('Missing Groq key — open ⚙ Keys');
 
+  const memoryContext = buildMemoryContext();
+  const tasksContext = buildTasksContext();
+  let systemContent = 'You are a concise, friendly study tutor. Answer clearly in 2-4 sentences suitable for being read aloud.';
+  if (memoryContext) {
+    systemContent += "\n\nThe user has saved these personal facts (timetable, birthdays, etc.) — use them whenever the question relates to them, and answer normally otherwise:\n" + memoryContext;
+  }
+  if (tasksContext) {
+    systemContent += "\n\nThe user's current pending tasks are:\n" + tasksContext;
+  }
+
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1025,7 +1257,7 @@ async function askGroq(question) {
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: 'You are a concise, friendly study tutor. Answer clearly in 2-4 sentences suitable for being read aloud.' },
+        { role: 'system', content: systemContent },
         { role: 'user', content: question }
       ],
       max_tokens: 300
@@ -1677,6 +1909,20 @@ async function runTypedPipeline(question) {
   try {
     lastQ.textContent = 'Q: ' + question;
 
+    // "remember X" saves a fact, "todo X" adds a task — either short-circuits Groq.
+    const memoryAck = tryHandleMemoryCommand(question) || tryHandleTaskCommand(question);
+    if (memoryAck) {
+      statusEl.textContent = 'Saving…';
+      lastA.textContent = memoryAck;
+      await new Promise(resolve => animateAnswerOnCanvas(memoryAck, resolve));
+      speak(memoryAck);
+      pushEntryToFirebase(question, memoryAck);
+      captureCurrentPage();
+      savePagesToStorage();
+      statusEl.textContent = '✓ Saved';
+      return;
+    }
+
     if (deviceRole === 'secondary') {
       const sessionId = getSessionId();
       if (!sessionId) {
@@ -2045,6 +2291,223 @@ closeNotesListBtn.addEventListener('click', () => notesListModal.classList.remov
 closeNoteDetailBtn.addEventListener('click', () => noteDetailModal.classList.remove('open'));
 saveNoteBtn.addEventListener('click', saveCurrentNote);
 saveDrawingBtn.addEventListener('click', saveCurrentDrawing);
+
+// ---- Memory: standing facts (timetable, birthdays, tasks…) always fed to the AI ----
+// Unlike Notes (saved pages you have to open) or Shelf (context you drag in
+// manually), Memory facts are short text lines that get silently included in
+// every askGroq() call from here on, so any question can draw on them.
+const MEMORY_KEY = 'aiNotebookMemory_v1';
+let memoryFacts = [];
+
+function loadMemory() {
+  try {
+    const raw = localStorage.getItem(MEMORY_KEY);
+    memoryFacts = raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    memoryFacts = [];
+  }
+}
+
+function saveMemoryToStorage() {
+  try { localStorage.setItem(MEMORY_KEY, JSON.stringify(memoryFacts)); } catch (err) {}
+}
+
+function addMemoryFact(text) {
+  text = (text || '').trim();
+  if (!text) return;
+  memoryFacts.unshift({ id: 'm' + Date.now() + Math.random().toString(36).slice(2, 6), text, t: Date.now() });
+  saveMemoryToStorage();
+  renderMemoryList();
+}
+
+function deleteMemoryFact(id) {
+  memoryFacts = memoryFacts.filter(f => f.id !== id);
+  saveMemoryToStorage();
+  renderMemoryList();
+}
+
+// Plain bullet list handed to the model as system-prompt context.
+function buildMemoryContext() {
+  if (!memoryFacts.length) return '';
+  return memoryFacts.map(f => '- ' + f.text).join('\n');
+}
+
+// Lets you write "remember X" (or "remember that X") instead of a question —
+// it's stored as a fact instead of being sent to Groq as a question.
+function tryHandleMemoryCommand(question) {
+  const m = /^remember(?:\s+that)?[:\s]+(.+)/i.exec((question || '').trim());
+  if (!m || !m[1].trim()) return null;
+  const fact = m[1].trim();
+  addMemoryFact(fact);
+  return "Got it — I'll remember: " + fact;
+}
+
+const memoryBtn = document.getElementById('memoryBtn');
+const memoryListModal = document.getElementById('memoryListModal');
+const closeMemoryListBtn = document.getElementById('closeMemoryListBtn');
+const memoryInput = document.getElementById('memoryInput');
+const addMemoryBtn = document.getElementById('addMemoryBtn');
+const memoryListContent = document.getElementById('memoryListContent');
+
+function renderMemoryList() {
+  if (!memoryFacts.length) {
+    memoryListContent.innerHTML = '<div class="notesEmpty">No memory yet — add something above.</div>';
+    return;
+  }
+  memoryListContent.innerHTML = '';
+  memoryFacts.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'noteCard';
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = '<div class="preview"></div><div class="time"></div>';
+    meta.querySelector('.preview').textContent = f.text;
+    meta.querySelector('.time').textContent = new Date(f.t).toLocaleString();
+    card.appendChild(meta);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'noteDeleteBtn';
+    delBtn.textContent = '🗑';
+    delBtn.style.flexShrink = '0';
+    delBtn.title = 'Forget this';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteMemoryFact(f.id);
+    });
+    card.appendChild(delBtn);
+    memoryListContent.appendChild(card);
+  });
+}
+
+memoryBtn.addEventListener('click', () => {
+  closeDrawer();
+  renderMemoryList();
+  memoryListModal.classList.add('open');
+});
+closeMemoryListBtn.addEventListener('click', () => memoryListModal.classList.remove('open'));
+addMemoryBtn.addEventListener('click', () => {
+  addMemoryFact(memoryInput.value);
+  memoryInput.value = '';
+});
+
+// ---- Tasks: a simple to-do list, always visible to the AI as pending work ----
+const TASKS_KEY = 'aiNotebookTasks_v1';
+let tasks = [];
+
+function loadTasks() {
+  try {
+    const raw = localStorage.getItem(TASKS_KEY);
+    tasks = raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    tasks = [];
+  }
+}
+
+function saveTasksToStorage() {
+  try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); } catch (err) {}
+}
+
+function addTask(text) {
+  text = (text || '').trim();
+  if (!text) return;
+  tasks.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), text, done: false, t: Date.now() });
+  saveTasksToStorage();
+  renderTaskList();
+}
+
+function toggleTask(id) {
+  const task = tasks.find(t => t.id === id);
+  if (!task) return;
+  task.done = !task.done;
+  saveTasksToStorage();
+  renderTaskList();
+}
+
+function deleteTask(id) {
+  tasks = tasks.filter(t => t.id !== id);
+  saveTasksToStorage();
+  renderTaskList();
+}
+
+// Plain bullet list of what's still open, handed to the model as context.
+function buildTasksContext() {
+  const pending = tasks.filter(t => !t.done);
+  if (!pending.length) return '';
+  return pending.map(t => '- ' + t.text).join('\n');
+}
+
+// Lets you write "todo X" or "task X" instead of a question — it's stored
+// as a to-do instead of being sent to Groq as a question.
+function tryHandleTaskCommand(question) {
+  const m = /^(?:todo|task)(?:\s*:|\s+)(.+)/i.exec((question || '').trim());
+  if (!m || !m[1].trim()) return null;
+  const text = m[1].trim();
+  addTask(text);
+  return 'Added to your tasks: ' + text;
+}
+
+const tasksBtn = document.getElementById('tasksBtn');
+const tasksListModal = document.getElementById('tasksListModal');
+const closeTasksListBtn = document.getElementById('closeTasksListBtn');
+const taskInput = document.getElementById('taskInput');
+const addTaskBtn = document.getElementById('addTaskBtn');
+const tasksListContent = document.getElementById('tasksListContent');
+
+function renderTaskList() {
+  if (!tasks.length) {
+    tasksListContent.innerHTML = '<div class="notesEmpty">No tasks yet — add one above.</div>';
+    return;
+  }
+  tasksListContent.innerHTML = '';
+  // Pending tasks first (newest first), completed ones after.
+  const sorted = [...tasks].sort((a, b) => (a.done === b.done ? b.t - a.t : (a.done ? 1 : -1)));
+  sorted.forEach(task => {
+    const card = document.createElement('div');
+    card.className = 'noteCard';
+    card.style.alignItems = 'center';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = task.done;
+    checkbox.style.flexShrink = '0';
+    checkbox.style.width = '20px';
+    checkbox.style.height = '20px';
+    checkbox.style.cursor = 'pointer';
+    checkbox.addEventListener('change', () => toggleTask(task.id));
+    card.appendChild(checkbox);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = '<div class="preview"></div><div class="time"></div>';
+    const previewEl = meta.querySelector('.preview');
+    previewEl.textContent = task.text;
+    if (task.done) {
+      previewEl.style.textDecoration = 'line-through';
+      previewEl.style.color = '#999';
+    }
+    meta.querySelector('.time').textContent = new Date(task.t).toLocaleString();
+    card.appendChild(meta);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'noteDeleteBtn';
+    delBtn.textContent = '🗑';
+    delBtn.style.flexShrink = '0';
+    delBtn.title = 'Delete task';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTask(task.id);
+    });
+    card.appendChild(delBtn);
+    tasksListContent.appendChild(card);
+  });
+}
+
+tasksBtn.addEventListener('click', () => {
+  closeDrawer();
+  renderTaskList();
+  tasksListModal.classList.add('open');
+});
+closeTasksListBtn.addEventListener('click', () => tasksListModal.classList.remove('open'));
+addTaskBtn.addEventListener('click', () => {
+  addTask(taskInput.value);
+  taskInput.value = '';
+});
 
 // ---- Context Pill: drag a summary (+ drawing) to the Shelf, or straight to Claude ----
 const contextPill = document.getElementById('contextPill');
@@ -2747,6 +3210,8 @@ window.addEventListener('beforeunload', () => {
 // Load keys and pages as soon as everything above is defined
 fetchKeysFromFirebase();
 refreshPillBadge();
+loadMemory();
+loadTasks();
 loadPagesFromStorage();
 restorePage(currentPageIndex);
 setMode('ask');
@@ -2767,6 +3232,22 @@ async function runPipeline() {
 
     lastQ.textContent = 'Q: ' + question;
     const questionStrokes = strokes.slice(); // keep a reference before we clear the buffer
+
+    // "remember X" saves a fact, "todo X" adds a task — either short-circuits Groq.
+    const memoryAck = tryHandleMemoryCommand(question) || tryHandleTaskCommand(question);
+    if (memoryAck) {
+      statusEl.textContent = 'Saving…';
+      await new Promise(resolve => fadeOutStrokesGhost(questionStrokes, resolve));
+      strokes = [];
+      lastA.textContent = memoryAck;
+      await new Promise(resolve => animateAnswerOnCanvas(memoryAck, resolve));
+      speak(memoryAck);
+      pushEntryToFirebase(question, memoryAck);
+      captureCurrentPage();
+      savePagesToStorage();
+      statusEl.textContent = '✓ Saved';
+      return;
+    }
 
     if (deviceRole === 'secondary') {
       const sessionId = getSessionId();
