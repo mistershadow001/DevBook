@@ -817,6 +817,7 @@ const canvasWrap = document.getElementById('canvasWrap');
 const zoomResetBtn = document.getElementById('zoomResetBtn');
 let activeTouchPointers = new Map(); // pointerId -> {x, y}
 let activePenDown = false;
+let everUsedPen = false; // becomes true the first time a real stylus is seen; gates palm-size rejection so pure-finger users are never affected
 let pinchActive = false;
 let pinchStartDist = 0, pinchStartScale = 1;
 let pinchStartMid = { x: 0, y: 0 };
@@ -864,13 +865,20 @@ function updatePinch() {
 let currentStrokePointerId = null;
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'pen') activePenDown = true;
+  if (e.pointerType === 'pen') { activePenDown = true; everUsedPen = true; }
 
   if (e.pointerType === 'touch') {
-    const contact = Math.max(e.width || 0, e.height || 0);
-    if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
-    activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePenDown) return; // a real pen is writing — ignore touches (palm) while it is
+    // Contact-size palm rejection only matters once we know a pen is in
+    // play (a resting palm right after lifting the stylus). During normal
+    // finger use it was wrongly rejecting real fingertips on devices that
+    // report larger contact geometry, silently blocking both writing and
+    // pinch-zoom — so it's now gated behind everUsedPen.
+    if (everUsedPen) {
+      const contact = Math.max(e.width || 0, e.height || 0);
+      if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
+    }
+    activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activeTouchPointers.size >= 2) {
       // Second finger down = pinch/pan gesture, not writing. Abandon
       // whatever single-finger stroke was in progress (most likely it was
