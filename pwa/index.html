@@ -714,6 +714,7 @@
   </div>
   <label class="penToolsCheck"><input type="checkbox" id="palmRejectToggle" checked> Reject palm touches while writing</label>
   <label class="penToolsCheck"><input type="checkbox" id="stylusModeToggle"> Stylus mode (my stylus acts like a finger)</label>
+  <label class="penToolsCheck"><input type="checkbox" id="liveConvertToggle" checked> Live-convert handwriting to typed text (Notes mode)</label>
 </div>
 
 <div id="settingsDrawer">
@@ -876,6 +877,11 @@ let palmRejectEnabled = true;
 // blocked); Stylus Mode skips that wait entirely, since waiting for a
 // signal that will never come means rejection would never activate.
 let stylusModeEnabled = false;
+// Notes-mode only: as you write and pause, ink gets recognized and swapped
+// for clean typed text right in place. Off in Ask mode (which has its own
+// pause-triggered Q&A pipeline instead).
+let liveConvertEnabled = true;
+let liveConvertBusy = false;
 const ERASER_WIDTH = 22;
 const lastQ = document.getElementById('lastQ');
 const lastA = document.getElementById('lastA');
@@ -1121,6 +1127,7 @@ function endStroke() {
   currentStroke = null;
   clearTimeout(pauseTimer);
   if (mode === 'ask') pauseTimer = setTimeout(checkTrigger, PAUSE_MS);
+  else if (mode === 'notes') pauseTimer = setTimeout(checkNotesLiveConvert, PAUSE_MS);
   captureCurrentPage();
   savePagesToStorage();
   // Live-mirroring the secondary device's in-progress writing onto the
@@ -1332,6 +1339,9 @@ palmRejectToggle.addEventListener('change', () => { palmRejectEnabled = palmReje
 const stylusModeToggle = document.getElementById('stylusModeToggle');
 stylusModeToggle.addEventListener('change', () => { stylusModeEnabled = stylusModeToggle.checked; });
 
+const liveConvertToggle = document.getElementById('liveConvertToggle');
+liveConvertToggle.addEventListener('change', () => { liveConvertEnabled = liveConvertToggle.checked; });
+
 // ---- Mode switch: Ask (auto Q&A) vs Notes (free writing/drawing) ----
 const modeAskBtn = document.getElementById('modeAskBtn');
 const modeNotesBtn = document.getElementById('modeNotesBtn');
@@ -1486,6 +1496,145 @@ async function recognizeHandwriting() {
   } else {
     // Text content type often returns plain text directly
     return await res.text();
+  }
+}
+
+// ---- Notes mode: live handwriting → typed text ----
+// Recognizes an arbitrary list of strokes (rather than the whole page's
+// `strokes` array) so we can convert just the ink written since the last
+// pause, incrementally, without re-sending everything already converted.
+function buildMyScriptPayloadFor(strokeList) {
+  const inkStrokes = strokeList.filter(s => !s.erase);
+  const strokeGroups = [{
+    strokes: inkStrokes.map((s, i) => ({
+      id: 'stroke-' + i,
+      pointerType: 'PEN',
+      pointerId: 0,
+      x: s.x,
+      y: s.y,
+      t: s.t,
+      p: s.x.map(() => 0.5)
+    }))
+  }];
+  const rect = canvas.getBoundingClientRect();
+  return {
+    configuration: { lang: 'en_US' },
+    contentType: 'Text',
+    xDPI: 96,
+    yDPI: 96,
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    strokeGroups
+  };
+}
+
+async function recognizeStrokeBatch(strokeList) {
+  const { msApp, msHmac } = getKeys();
+  if (!msApp || !msHmac) throw new Error('Missing MyScript keys');
+  const payload = buildMyScriptPayloadFor(strokeList);
+  const bodyString = JSON.stringify(payload);
+  const hmac = computeHmac(bodyString, msApp, msHmac);
+
+  const res = await fetch('https://cloud.myscript.com/api/v4.0/iink/batch', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json,text/plain',
+      'Content-Type': 'application/json',
+      'applicationKey': msApp,
+      'hmac': hmac
+    },
+    body: bodyString
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('MyScript error ' + res.status + ': ' + errText.slice(0, 200));
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await res.json();
+    return data.label || data.result?.label || '';
+  } else {
+    return await res.text();
+  }
+}
+
+// Draws clean, plain typed text where messy ink used to be — deliberately a
+// normal sans-serif (not the cursive font used for AI answers), so it reads
+// as "this got typed up" rather than "this is more handwriting".
+function writeTypedReplacementText(erasedStrokes, text) {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  let minX = Infinity, minY = Infinity;
+  erasedStrokes.forEach(s => {
+    if (s.erase || !s.x) return;
+    for (let i = 0; i < s.x.length; i++) {
+      if (s.x[i] < minX) minX = s.x[i];
+      if (s.y[i] < minY) minY = s.y[i];
+    }
+  });
+  if (!isFinite(minX)) return;
+
+  const fontSize = 22;
+  const lineHeight = fontSize * 1.3;
+  const leftMargin = Math.max(60, minX);
+  const maxWidth = rect.width - leftMargin - 30;
+
+  ctx.font = fontSize + "px 'Segoe UI', system-ui, -apple-system, sans-serif";
+  ctx.fillStyle = '#1a1a2e';
+  ctx.textBaseline = 'top';
+
+  let y = minY;
+  const words = text.split(/\s+/).filter(Boolean);
+  let line = '';
+  for (const word of words) {
+    const test = line + word + ' ';
+    if (ctx.measureText(test).width > maxWidth && line !== '') {
+      ctx.fillText(line, leftMargin, y);
+      y += lineHeight;
+      line = word + ' ';
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, leftMargin, y);
+  canvasHasContent = true;
+}
+
+// Fires on every writing pause while in Notes mode. Takes whatever ink has
+// accumulated since the last conversion, recognizes just that batch, fades
+// the ink out, and types the recognized text in its place. Strokes already
+// handled this way are removed from the live `strokes` array so they never
+// get re-sent to MyScript and don't reappear if the user later hits Undo
+// (consistent with how AI answers already sit outside stroke-based undo).
+async function checkNotesLiveConvert() {
+  if (mode !== 'notes' || !liveConvertEnabled || liveConvertBusy) return;
+  if (strokes.length === 0) return;
+  const { msApp, msHmac } = getKeys();
+  if (!msApp || !msHmac) return; // stay quiet in Notes mode if keys aren't set up
+
+  const pending = strokes.slice();
+  const inkPending = pending.filter(s => !s.erase);
+  if (inkPending.length === 0) {
+    // Nothing but eraser strokes since the last conversion — drop them so
+    // they don't get rechecked forever.
+    strokes.splice(0, pending.length);
+    return;
+  }
+
+  liveConvertBusy = true;
+  try {
+    const text = (await recognizeStrokeBatch(inkPending)).trim();
+    if (text) {
+      strokes.splice(0, pending.length);
+      fadeOutStrokesGhost(pending, () => {
+        writeTypedReplacementText(pending, text);
+        captureCurrentPage();
+        savePagesToStorage();
+      });
+    }
+  } catch (err) {
+    console.warn('Live notes conversion skipped (will retry after next pause):', err.message);
+  } finally {
+    liveConvertBusy = false;
   }
 }
 
