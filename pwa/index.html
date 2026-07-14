@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>AI Notebook — Prototype</title>
+
+<!-- PWA: lets this be installed on a tablet home screen as a standalone app -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a56db">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI Notebook">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
 <style>
@@ -51,9 +62,6 @@
     position: relative;
     overflow: hidden;
     transform-origin: 50% 50%;
-    background:
-      linear-gradient(90deg, transparent 0 46px, rgba(220,90,90,0.35) 46px 47px, transparent 47px 100%),
-      repeating-linear-gradient(to bottom, transparent 0 31px, rgba(60,110,190,0.18) 31px 32px);
     background-color: #fffdf7;
   }
   canvas {
@@ -328,6 +336,122 @@
   #canvasWrap.modeNotes { background-color: #fffaf0; }
   #canvasWrap.modeAsk { background-color: #f5f8ff; }
 
+  /* ---- Pen tools: color / size / eraser / palm-reject popover ---- */
+  #penToolsBtn {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 12px);
+    right: 12px;
+    z-index: 960;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #fff;
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    font-size: 19px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  #penToolsBtn .swatchDot {
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.25);
+    background: #1a1a1a;
+  }
+  #penToolsPanel {
+    display: none;
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 60px);
+    right: 12px;
+    z-index: 960;
+    background: #fff9ee;
+    border: 1px solid #eadfc4;
+    border-radius: 14px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.2);
+    padding: 12px;
+    width: 210px;
+  }
+  #penToolsPanel.open { display: block; }
+  .penToolsLabel {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b5f3d;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 6px 0 6px;
+  }
+  .penToolsLabel:first-child { margin-top: 0; }
+  .penRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .colorSwatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25) inset, 0 1px 2px rgba(0,0,0,0.15);
+  }
+  .colorSwatch.active { border-color: #1a56db; }
+  #customColorInput {
+    width: 26px;
+    height: 26px;
+    border: none;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+  }
+  .sizeBtn {
+    flex: 1;
+    min-width: 38px;
+    padding: 8px 0;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 38px;
+  }
+  .sizeBtn.active { background: #1a56db; color: #fff; border-color: #1a56db; }
+  .sizeBtn .dot {
+    display: block;
+    margin: 0 auto 3px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  #eraserToggleBtn {
+    width: 100%;
+    padding: 9px 0;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 38px;
+  }
+  #eraserToggleBtn.active { background: #d9534f; color: #fff; border-color: #d9534f; }
+  .penToolsCheck {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eadfc4;
+    color: #4a3f22;
+  }
+
   .pageTab {
     display: flex;
     align-items: center;
@@ -566,6 +690,31 @@
 
 <button id="gearBtn" title="Menu">⚙</button>
 
+<button id="penToolsBtn" title="Pen tools">🖊<span class="swatchDot" id="penSwatchDot"></span></button>
+<div id="penToolsPanel">
+  <div class="penToolsLabel">Color</div>
+  <div class="penRow" id="penColors">
+    <button class="colorSwatch active" data-color="#1a1a1a" style="background:#1a1a1a" title="Black"></button>
+    <button class="colorSwatch" data-color="#1a56db" style="background:#1a56db" title="Blue"></button>
+    <button class="colorSwatch" data-color="#d9534f" style="background:#d9534f" title="Red"></button>
+    <button class="colorSwatch" data-color="#0a7a2f" style="background:#0a7a2f" title="Green"></button>
+    <button class="colorSwatch" data-color="#7b3fbf" style="background:#7b3fbf" title="Purple"></button>
+    <input type="color" id="customColorInput" value="#1a1a1a" title="Custom color">
+  </div>
+  <div class="penToolsLabel">Pen size</div>
+  <div class="penRow" id="penSizes">
+    <button class="sizeBtn" data-size="1.25" title="Thin"><span class="dot" style="width:5px;height:5px;"></span>S</button>
+    <button class="sizeBtn active" data-size="2.5" title="Medium"><span class="dot" style="width:7px;height:7px;"></span>M</button>
+    <button class="sizeBtn" data-size="4.5" title="Thick"><span class="dot" style="width:9px;height:9px;"></span>L</button>
+    <button class="sizeBtn" data-size="7" title="Extra thick"><span class="dot" style="width:11px;height:11px;"></span>XL</button>
+  </div>
+  <div class="penToolsLabel">Tool</div>
+  <div class="penRow">
+    <button id="eraserToggleBtn" title="Toggle eraser">🧽 Eraser</button>
+  </div>
+  <label class="penToolsCheck"><input type="checkbox" id="palmRejectToggle" checked> Reject palm touches while writing</label>
+</div>
+
 <div id="settingsDrawer">
   <div id="settingsScrim"></div>
   <div id="settingsPanelBox">
@@ -713,6 +862,13 @@
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
+
+// ---- Pen tools state: color, width, eraser, palm-reject toggle ----
+let currentPenColor = '#1a1a1a';
+let currentPenWidth = 2.5;
+let eraserActive = false;
+let palmRejectEnabled = true;
+const ERASER_WIDTH = 22;
 const lastQ = document.getElementById('lastQ');
 const lastA = document.getElementById('lastA');
 
@@ -746,9 +902,11 @@ function resizeCanvas() {
   canvas.width = rect.width * devicePixelRatio;
   canvas.height = rect.height * devicePixelRatio;
   ctx.scale(devicePixelRatio, devicePixelRatio);
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = currentPenWidth;
   ctx.lineCap = 'round';
-  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = currentPenColor;
+  ctx.globalCompositeOperation = 'source-over';
 
   if (snapshot) {
     const img = new Image();
@@ -868,15 +1026,17 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'pen') { activePenDown = true; everUsedPen = true; }
 
   if (e.pointerType === 'touch') {
-    if (activePenDown) return; // a real pen is writing — ignore touches (palm) while it is
-    // Contact-size palm rejection only matters once we know a pen is in
-    // play (a resting palm right after lifting the stylus). During normal
-    // finger use it was wrongly rejecting real fingertips on devices that
-    // report larger contact geometry, silently blocking both writing and
-    // pinch-zoom — so it's now gated behind everUsedPen.
-    if (everUsedPen) {
-      const contact = Math.max(e.width || 0, e.height || 0);
-      if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
+    if (palmRejectEnabled) {
+      if (activePenDown) return; // a real pen is writing — ignore touches (palm) while it is
+      // Contact-size palm rejection only matters once we know a pen is in
+      // play (a resting palm right after lifting the stylus). During normal
+      // finger use it was wrongly rejecting real fingertips on devices that
+      // report larger contact geometry, silently blocking both writing and
+      // pinch-zoom — so it's now gated behind everUsedPen.
+      if (everUsedPen) {
+        const contact = Math.max(e.width || 0, e.height || 0);
+        if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
+      }
     }
     activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activeTouchPointers.size >= 2) {
@@ -896,7 +1056,15 @@ canvas.addEventListener('pointerdown', (e) => {
   currentStrokePointerId = e.pointerId;
   clearTimeout(pauseTimer);
   const p = pointerPos(e);
-  currentStroke = { x: [p.x], y: [p.y], t: [p.t] };
+  currentStroke = {
+    x: [p.x], y: [p.y], t: [p.t],
+    color: currentPenColor,
+    width: eraserActive ? ERASER_WIDTH : currentPenWidth,
+    erase: eraserActive
+  };
+  ctx.globalCompositeOperation = eraserActive ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = eraserActive ? 'rgba(0,0,0,1)' : currentPenColor;
+  ctx.lineWidth = eraserActive ? ERASER_WIDTH : currentPenWidth;
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
 });
@@ -994,11 +1162,18 @@ function redrawStrokes() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   strokes.forEach(s => {
     if (!s.x || s.x.length === 0) return;
+    ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = s.erase ? 'rgba(0,0,0,1)' : (s.color || '#1a1a1a');
+    ctx.lineWidth = s.width || (s.erase ? ERASER_WIDTH : 2.5);
     ctx.beginPath();
     ctx.moveTo(s.x[0], s.y[0]);
     for (let i = 1; i < s.x.length; i++) ctx.lineTo(s.x[i], s.y[i]);
     ctx.stroke();
   });
+  // Restore state for whatever the user is about to draw next
+  ctx.globalCompositeOperation = eraserActive ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = eraserActive ? 'rgba(0,0,0,1)' : currentPenColor;
+  ctx.lineWidth = eraserActive ? ERASER_WIDTH : currentPenWidth;
 }
 
 function undoLastStroke() {
@@ -1084,6 +1259,57 @@ function closeDrawer() { settingsDrawer.classList.remove('open'); }
 gearBtn.addEventListener('click', openDrawer);
 closeDrawerBtn.addEventListener('click', closeDrawer);
 settingsScrim.addEventListener('click', closeDrawer);
+
+// ---- Pen tools: color / size / eraser / palm-reject popover ----
+const penToolsBtn = document.getElementById('penToolsBtn');
+const penToolsPanel = document.getElementById('penToolsPanel');
+const penSwatchDot = document.getElementById('penSwatchDot');
+const customColorInput = document.getElementById('customColorInput');
+const eraserToggleBtn = document.getElementById('eraserToggleBtn');
+const palmRejectToggle = document.getElementById('palmRejectToggle');
+
+penToolsBtn.addEventListener('click', () => {
+  penToolsPanel.classList.toggle('open');
+});
+// Tapping anywhere else on the page (including the canvas) closes the popover
+document.addEventListener('pointerdown', (e) => {
+  if (penToolsPanel.classList.contains('open') &&
+      !penToolsPanel.contains(e.target) && e.target !== penToolsBtn) {
+    penToolsPanel.classList.remove('open');
+  }
+});
+
+function setEraserActive(active) {
+  eraserActive = active;
+  eraserToggleBtn.classList.toggle('active', active);
+}
+
+function selectPenColor(color) {
+  currentPenColor = color;
+  penSwatchDot.style.background = color;
+  customColorInput.value = color;
+  document.querySelectorAll('#penColors .colorSwatch').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color.toLowerCase() === color.toLowerCase());
+  });
+  setEraserActive(false); // picking a color always switches back to writing
+}
+
+document.querySelectorAll('#penColors .colorSwatch').forEach(btn => {
+  btn.addEventListener('click', () => selectPenColor(btn.dataset.color));
+});
+customColorInput.addEventListener('input', () => selectPenColor(customColorInput.value));
+
+document.querySelectorAll('#penSizes .sizeBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentPenWidth = parseFloat(btn.dataset.size);
+    document.querySelectorAll('#penSizes .sizeBtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+eraserToggleBtn.addEventListener('click', () => setEraserActive(!eraserActive));
+
+palmRejectToggle.addEventListener('change', () => { palmRejectEnabled = palmRejectToggle.checked; });
 
 // ---- Mode switch: Ask (auto Q&A) vs Notes (free writing/drawing) ----
 const modeAskBtn = document.getElementById('modeAskBtn');
@@ -1182,8 +1408,9 @@ function computeHmac(bodyString, appKey, hmacKey) {
 
 // ---- Convert strokes to MyScript iink format ----
 function buildMyScriptPayload() {
+  const inkStrokes = strokes.filter(s => !s.erase);
   const strokeGroups = [{
-    strokes: strokes.map((s, i) => ({
+    strokes: inkStrokes.map((s, i) => ({
       id: 'stroke-' + i,
       pointerType: 'PEN',
       pointerId: 0,
@@ -1208,7 +1435,7 @@ function buildMyScriptPayload() {
 async function recognizeHandwriting() {
   const { msApp, msHmac } = getKeys();
   if (!msApp || !msHmac) throw new Error('Missing MyScript keys — open ⚙ Keys');
-  if (strokes.length === 0) throw new Error('Nothing written yet — draw on the canvas first');
+  if (strokes.filter(s => !s.erase).length === 0) throw new Error('Nothing written yet — draw on the canvas first');
 
   const payload = buildMyScriptPayload();
   console.log('Strokes recorded:', strokes.length, '| strokeGroups[0].strokes.length:', payload.strokeGroups[0].strokes.length);
@@ -2962,28 +3189,9 @@ const pageTabsEl = document.getElementById('pageTabs');
 // canvas first, then draws the ink on top of that, so what gets exported
 // actually looks like a real notebook page.
 function drawNotebookPaper(context, pixelWidth, pixelHeight) {
-  const dpr = window.devicePixelRatio || 1;
   context.save();
   context.fillStyle = '#fffdf7';
   context.fillRect(0, 0, pixelWidth, pixelHeight);
-
-  const lineSpacing = 32 * dpr;
-  context.strokeStyle = 'rgba(60,110,190,0.4)';
-  context.lineWidth = Math.max(1, 1 * dpr);
-  for (let y = lineSpacing; y < pixelHeight; y += lineSpacing) {
-    context.beginPath();
-    context.moveTo(0, y + 0.5);
-    context.lineTo(pixelWidth, y + 0.5);
-    context.stroke();
-  }
-
-  const marginX = 46.5 * dpr;
-  context.strokeStyle = 'rgba(220,90,90,0.5)';
-  context.lineWidth = Math.max(1, 1 * dpr);
-  context.beginPath();
-  context.moveTo(marginX, 0);
-  context.lineTo(marginX, pixelHeight);
-  context.stroke();
   context.restore();
 }
 
@@ -3310,6 +3518,15 @@ async function runPipeline() {
     processing = false;
     refreshPillBadge();
   }
+}
+
+// ---- PWA: register service worker so this can be installed as a standalone app ----
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch((err) => {
+      console.log('Service worker registration failed (app still works normally):', err);
+    });
+  });
 }
 </script>
 
