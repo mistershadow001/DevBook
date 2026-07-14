@@ -713,6 +713,7 @@
     <button id="eraserToggleBtn" title="Toggle eraser">🧽 Eraser</button>
   </div>
   <label class="penToolsCheck"><input type="checkbox" id="palmRejectToggle" checked> Reject palm touches while writing</label>
+  <label class="penToolsCheck"><input type="checkbox" id="stylusModeToggle"> Stylus mode (my stylus acts like a finger)</label>
 </div>
 
 <div id="settingsDrawer">
@@ -868,6 +869,13 @@ let currentPenColor = '#1a1a1a';
 let currentPenWidth = 2.5;
 let eraserActive = false;
 let palmRejectEnabled = true;
+// Passive/capacitive styluses (no real digitizer) never fire pointerType
+// 'pen' — the browser sees them as an ordinary finger touch. Contact-size
+// rejection normally waits to see a real pen first (so pure finger users
+// on devices that report large default touch radii aren't wrongly
+// blocked); Stylus Mode skips that wait entirely, since waiting for a
+// signal that will never come means rejection would never activate.
+let stylusModeEnabled = false;
 const ERASER_WIDTH = 22;
 const lastQ = document.getElementById('lastQ');
 const lastA = document.getElementById('lastA');
@@ -1032,10 +1040,20 @@ canvas.addEventListener('pointerdown', (e) => {
       // play (a resting palm right after lifting the stylus). During normal
       // finger use it was wrongly rejecting real fingertips on devices that
       // report larger contact geometry, silently blocking both writing and
-      // pinch-zoom — so it's now gated behind everUsedPen.
-      if (everUsedPen) {
+      // pinch-zoom — so it's normally gated behind everUsedPen. Stylus Mode
+      // skips that gate: a passive stylus never fires a 'pen' event, so
+      // waiting for one would mean this rejection never turns on at all.
+      if (everUsedPen || stylusModeEnabled) {
         const contact = Math.max(e.width || 0, e.height || 0);
         if (contact > PALM_CONTACT_PX) return; // likely a palm — ignore entirely
+      }
+      // Stylus Mode: once a stroke has genuinely started moving (not just
+      // tapped down), a second touch landing mid-stroke is almost always a
+      // palm settling in to write, not a deliberate two-finger gesture —
+      // real pinch gestures land both fingers together, before any ink
+      // exists. Ignore the newcomer instead of aborting the stroke.
+      if (stylusModeEnabled && drawing && currentStroke && currentStroke.x.length > 3) {
+        return;
       }
     }
     activeTouchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1310,6 +1328,9 @@ document.querySelectorAll('#penSizes .sizeBtn').forEach(btn => {
 eraserToggleBtn.addEventListener('click', () => setEraserActive(!eraserActive));
 
 palmRejectToggle.addEventListener('change', () => { palmRejectEnabled = palmRejectToggle.checked; });
+
+const stylusModeToggle = document.getElementById('stylusModeToggle');
+stylusModeToggle.addEventListener('change', () => { stylusModeEnabled = stylusModeToggle.checked; });
 
 // ---- Mode switch: Ask (auto Q&A) vs Notes (free writing/drawing) ----
 const modeAskBtn = document.getElementById('modeAskBtn');
@@ -3532,4 +3553,3 @@ if ('serviceWorker' in navigator) {
 
 </body>
 </html>
-//updated root directory
