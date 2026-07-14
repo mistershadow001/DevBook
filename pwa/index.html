@@ -1558,9 +1558,10 @@ async function recognizeStrokeBatch(strokeList) {
   }
 }
 
-// Draws clean, plain typed text where messy ink used to be — deliberately a
-// normal sans-serif (not the cursive font used for AI answers), so it reads
-// as "this got typed up" rather than "this is more handwriting".
+// Draws the recognized text back onto the page in the same handwriting-style
+// cursive font used for AI answers, so converted notes read as handwriting
+// rather than typed text. Uses the normal ink color (not the AI's blue) so
+// it still reads as "your note", not "an AI answer".
 function writeTypedReplacementText(erasedStrokes, text) {
   const rect = canvas.parentElement.getBoundingClientRect();
   let minX = Infinity, minY = Infinity;
@@ -1573,12 +1574,12 @@ function writeTypedReplacementText(erasedStrokes, text) {
   });
   if (!isFinite(minX)) return;
 
-  const fontSize = 22;
+  const fontSize = 26;
   const lineHeight = fontSize * 1.3;
   const leftMargin = Math.max(60, minX);
   const maxWidth = rect.width - leftMargin - 30;
 
-  ctx.font = fontSize + "px 'Segoe UI', system-ui, -apple-system, sans-serif";
+  ctx.font = fontSize + "px 'Caveat', cursive";
   ctx.fillStyle = '#1a1a2e';
   ctx.textBaseline = 'top';
 
